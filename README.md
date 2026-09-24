@@ -194,8 +194,7 @@ bootstrapAdmin:
 Start the service:
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f grok2api
 ```
 
