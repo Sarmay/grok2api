@@ -7,6 +7,33 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 )
 
+func TestBuildTextLineageCoversOlderRoutes(t *testing.T) {
+	if got := CapabilityModelsForUpstream("grok-4.5"); len(got) != 3 || got[0] != "grok-4.5" || got[2] != "grok-4.7" {
+		t.Fatalf("grok-4.5 capability models = %#v", got)
+	}
+	if got := CapabilityModelsForUpstream("grok-4.6"); len(got) != 2 || got[0] != "grok-4.6" || got[1] != "grok-4.7" {
+		t.Fatalf("grok-4.6 capability models = %#v", got)
+	}
+	if got := CapabilityModelsForUpstream("grok-4.7"); len(got) != 1 || got[0] != "grok-4.7" {
+		t.Fatalf("grok-4.7 capability models = %#v", got)
+	}
+	if got := CapabilityModelsForUpstream("grok-composer-2.5-fast"); len(got) != 1 || got[0] != "grok-composer-2.5-fast" {
+		t.Fatalf("unrelated capability models = %#v", got)
+	}
+	if got := InheritedBuildTextModels([]string{"grok-4.7"}); len(got) != 2 || got[0] != "grok-4.6" || got[1] != "grok-4.5" {
+		t.Fatalf("inherited from grok-4.7 = %#v", got)
+	}
+	if got := InheritedBuildTextModels([]string{"grok-4.7", "grok-4.6"}); len(got) != 1 || got[0] != "grok-4.5" {
+		t.Fatalf("inherited when grok-4.6 is already listed = %#v", got)
+	}
+	if got := InheritedBuildTextModels([]string{"grok-4.6"}); len(got) != 1 || got[0] != "grok-4.5" {
+		t.Fatalf("inherited from grok-4.6 = %#v", got)
+	}
+	if got := InheritedBuildTextModels([]string{"grok-4.5"}); got != nil {
+		t.Fatalf("grok-4.5 inherits nothing, got %#v", got)
+	}
+}
+
 func TestNormalizePublicIDUsesStableProviderNamespace(t *testing.T) {
 	tests := []struct {
 		provider account.Provider

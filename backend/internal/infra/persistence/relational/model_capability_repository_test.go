@@ -85,6 +85,60 @@ func TestModelCapabilitiesAggregateAndGateEnabledRoutes(t *testing.T) {
 	}
 }
 
+func TestBuildGrok47CapabilityCoversLegacyTextRoutes(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "grok47-lineage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InitializeSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
+	accounts := NewAccountRepository(database)
+	models := NewModelRepository(database)
+	credential, _, err := accounts.UpsertByIdentity(ctx, account.Credential{
+		Provider: account.ProviderBuild, Name: "build-47", SourceKey: "build-47",
+		EncryptedAccessToken: testEncryptedToken, Enabled: true, AuthStatus: account.AuthStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := models.UpsertDiscovered(ctx, account.ProviderBuild, []string{"grok-4.7", "grok-4.6", "grok-4.5"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := models.ReplaceAccountCapabilities(ctx, credential.ID, []string{"grok-4.7"}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	values, _, err := models.List(ctx, repository.ModelListQuery{Page: repository.PageQuery{Limit: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byModel := map[string]int{}
+	for _, value := range values {
+		byModel[value.UpstreamModel] = value.SupportedAccounts
+	}
+	if byModel["grok-4.7"] != 1 || byModel["grok-4.6"] != 1 || byModel["grok-4.5"] != 1 {
+		t.Fatalf("supported accounts = %#v", byModel)
+	}
+	for _, upstream := range []string{"grok-4.7", "grok-4.6", "grok-4.5"} {
+		candidates, err := accounts.ListRoutingCandidates(ctx, account.ProviderBuild, 0, upstream, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(candidates) != 1 || !candidates[0].ModelCapabilityKnown || !candidates[0].SupportsModel {
+			t.Fatalf("%s candidates = %#v", upstream, candidates)
+		}
+	}
+	candidates, err := accounts.ListRoutingCandidates(ctx, account.ProviderBuild, 0, "grok-composer-2.5-fast", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || !candidates[0].ModelCapabilityKnown || candidates[0].SupportsModel {
+		t.Fatalf("composer must stay unsupported: %#v", candidates)
+	}
+}
+
 func TestConsoleBuiltInModelIgnoresStaleAccountCapabilitySnapshot(t *testing.T) {
 	ctx := context.Background()
 	database := openTestDatabase(t)

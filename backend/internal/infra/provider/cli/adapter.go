@@ -754,16 +754,16 @@ func (a *Adapter) ListModels(ctx context.Context, credential account.Credential)
 // NormalizeAccountModelCapabilities normalizes capabilities that the OAuth
 // session contract exposes independently of the account's sparse /models list.
 // Composer is available to Build OAuth sessions independently of the sparse
-// live catalog. Grok 4.6 sessions retain the still-supported Grok 4.5 route for
-// backwards compatibility. Super always includes video 1.5; Free and Unknown
-// remove video 1.5 exactly. BuildAPIFallback is ignored.
+// live catalog. A newer Build text model keeps the older ids callable:
+// grok-4.7 still serves grok-4.6 and grok-4.5, and grok-4.6 still serves
+// grok-4.5. Super always includes video 1.5; Free and Unknown remove video
+// 1.5 exactly. BuildAPIFallback is ignored.
 func (a *Adapter) NormalizeAccountModelCapabilities(models []string, billing *account.Billing, credential account.Credential) []string {
 	super := account.IsBuildSuper(credential, billing)
 	composer := credential.Provider == account.ProviderBuild && credential.AuthType == account.AuthTypeOAuth
 	result := make([]string, 0, len(models)+2)
 	seen := make(map[string]struct{}, len(models)+2)
 	hasVideo15 := false
-	hasGrok46 := false
 	for _, model := range models {
 		model = strings.TrimSpace(model)
 		if model == "" {
@@ -778,16 +778,16 @@ func (a *Adapter) NormalizeAccountModelCapabilities(models []string, billing *ac
 			}
 			hasVideo15 = true
 		}
-		if model == buildGrok46Model {
-			hasGrok46 = true
-		}
 		seen[model] = struct{}{}
 		result = append(result, model)
 	}
-	if credential.Provider == account.ProviderBuild && hasGrok46 {
-		if _, exists := seen[buildGrok45Model]; !exists {
-			seen[buildGrok45Model] = struct{}{}
-			result = append(result, buildGrok45Model)
+	if credential.Provider == account.ProviderBuild {
+		for _, inherited := range modeldomain.InheritedBuildTextModels(result) {
+			if _, exists := seen[inherited]; exists {
+				continue
+			}
+			seen[inherited] = struct{}{}
+			result = append(result, inherited)
 		}
 	}
 	if super && !hasVideo15 {

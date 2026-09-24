@@ -101,7 +101,7 @@ const availableRoutePredicate = `
 						OR EXISTS (
 							SELECT 1 FROM account_model_capabilities capability
 							WHERE capability.account_id = account.id
-								AND capability.upstream_model = model_routes.upstream_model
+								AND ` + modelCapabilityMatchOnRoutes + `
 						)
 					)
 				)
@@ -113,12 +113,20 @@ const availableRoutePredicate = `
 const modelAccountBuildSuperPredicate = `(EXISTS (SELECT 1 FROM account_billing_snapshots billing WHERE billing.account_id = account.id AND ` + accountPaidBillingSignals + `) OR (account.provider = 'grok_build' AND account.build_super_entitled = TRUE))`
 const modelPeerBuildSuperPredicate = `(EXISTS (SELECT 1 FROM account_billing_snapshots billing WHERE billing.account_id = peer.id AND ` + accountPaidBillingSignals + `) OR (peer.provider = 'grok_build' AND peer.build_super_entitled = TRUE))`
 
+// A newer Grok Build text catalog entry still serves the older public routes.
+// grok-4.7 covers grok-4.6 and grok-4.5; grok-4.6 covers grok-4.5. The live
+// /models list often drops those older ids while upstream keeps accepting them.
+const modelCapabilityMatchOnRoutes = `(capability.upstream_model = model_routes.upstream_model OR (model_routes.provider = 'grok_build' AND ((model_routes.upstream_model = 'grok-4.5' AND capability.upstream_model IN ('grok-4.6', 'grok-4.7')) OR (model_routes.upstream_model = 'grok-4.6' AND capability.upstream_model = 'grok-4.7'))))`
+const modelCapabilityMatchOnRoute = `(capability.upstream_model = route.upstream_model OR (route.provider = 'grok_build' AND ((route.upstream_model = 'grok-4.5' AND capability.upstream_model IN ('grok-4.6', 'grok-4.7')) OR (route.upstream_model = 'grok-4.6' AND capability.upstream_model = 'grok-4.7'))))`
+const modelPeerCapabilityMatchOnRoutes = `(peer_capability.upstream_model = model_routes.upstream_model OR (model_routes.provider = 'grok_build' AND ((model_routes.upstream_model = 'grok-4.5' AND peer_capability.upstream_model IN ('grok-4.6', 'grok-4.7')) OR (model_routes.upstream_model = 'grok-4.6' AND peer_capability.upstream_model = 'grok-4.7'))))`
+const modelPeerCapabilityMatchOnRoute = `(peer_capability.upstream_model = route.upstream_model OR (route.provider = 'grok_build' AND ((route.upstream_model = 'grok-4.5' AND peer_capability.upstream_model IN ('grok-4.6', 'grok-4.7')) OR (route.upstream_model = 'grok-4.6' AND peer_capability.upstream_model = 'grok-4.7'))))`
+
 const modelSharedPaidBuildSupportSortExpression = `(model_routes.provider = 'grok_build'
 	AND ` + modelAccountBuildSuperPredicate + `
 	AND EXISTS (
 		SELECT 1
 		FROM provider_accounts peer
-		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND peer_capability.upstream_model = model_routes.upstream_model
+		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND ` + modelPeerCapabilityMatchOnRoutes + `
 		WHERE peer.provider = model_routes.provider
 			AND peer.enabled = TRUE
 			AND peer.auth_status = 'active'
@@ -130,7 +138,7 @@ const modelSharedPaidBuildSupportAvailabilityExpression = `(route.provider = 'gr
 	AND EXISTS (
 		SELECT 1
 		FROM provider_accounts peer
-		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND peer_capability.upstream_model = route.upstream_model
+		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND ` + modelPeerCapabilityMatchOnRoute + `
 		WHERE peer.provider = route.provider
 			AND peer.enabled = TRUE
 			AND peer.auth_status = 'active'
@@ -161,7 +169,7 @@ const modelSharedPaidBuildScopeExpression = `(model_routes.provider = 'grok_buil
 	AND EXISTS (
 		SELECT 1
 		FROM provider_accounts peer
-		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND peer_capability.upstream_model = model_routes.upstream_model
+		JOIN account_model_capabilities peer_capability ON peer_capability.account_id = peer.id AND ` + modelPeerCapabilityMatchOnRoutes + `
 		WHERE peer.provider = model_routes.provider
 			AND ` + modelPeerBuildSuperPredicate + `
 	))`
@@ -180,7 +188,7 @@ const modelRouteAccountCapabilityPredicate = `(
 			OR EXISTS (
 				SELECT 1 FROM account_model_capabilities capability
 				WHERE capability.account_id = account.id
-					AND capability.upstream_model = model_routes.upstream_model
+					AND ` + modelCapabilityMatchOnRoutes + `
 			)
 			OR ` + modelSharedPaidBuildScopeExpression + `
 		)
@@ -201,7 +209,7 @@ const modelAvailableRouteAccountCapabilityPredicate = `(
 			OR EXISTS (
 				SELECT 1 FROM account_model_capabilities capability
 				WHERE capability.account_id = account.id
-					AND capability.upstream_model = model_routes.upstream_model
+					AND ` + modelCapabilityMatchOnRoutes + `
 			)
 			OR ` + modelSharedPaidBuildSupportSortExpression + `
 		)
@@ -242,7 +250,7 @@ func modelTierAvailabilityPredicateWithAvailability(tiers []string, activeOnly b
 
 const (
 	modelProviderPriorityExpression = "CASE model_routes.provider WHEN 'grok_build' THEN 0 WHEN 'grok_web' THEN 1 WHEN 'grok_console' THEN 2 ELSE 3 END"
-	modelSupportSortExpression      = `(SELECT COUNT(*) FROM provider_accounts account WHERE account.provider = model_routes.provider AND account.enabled = TRUE AND account.auth_status = 'active' AND (EXISTS (SELECT 1 FROM model_route_accounts binding WHERE binding.model_route_id = model_routes.id AND binding.account_id = account.id) OR (NOT EXISTS (SELECT 1 FROM model_route_accounts binding WHERE binding.model_route_id = model_routes.id) AND (` + modelConsoleStaticSupportExpression + ` OR ` + modelWebBasicMediaStaticSupportExpression + ` OR EXISTS (SELECT 1 FROM account_model_capabilities capability WHERE capability.account_id = account.id AND capability.upstream_model = model_routes.upstream_model) OR ` + modelSharedPaidBuildSupportSortExpression + `))))`
+	modelSupportSortExpression      = `(SELECT COUNT(*) FROM provider_accounts account WHERE account.provider = model_routes.provider AND account.enabled = TRUE AND account.auth_status = 'active' AND (EXISTS (SELECT 1 FROM model_route_accounts binding WHERE binding.model_route_id = model_routes.id AND binding.account_id = account.id) OR (NOT EXISTS (SELECT 1 FROM model_route_accounts binding WHERE binding.model_route_id = model_routes.id) AND (` + modelConsoleStaticSupportExpression + ` OR ` + modelWebBasicMediaStaticSupportExpression + ` OR EXISTS (SELECT 1 FROM account_model_capabilities capability WHERE capability.account_id = account.id AND ` + modelCapabilityMatchOnRoutes + `) OR ` + modelSharedPaidBuildSupportSortExpression + `))))`
 	modelSyncedSortExpression       = `(SELECT MAX(sync.last_success_at) FROM provider_accounts account JOIN account_model_sync_states sync ON sync.account_id = account.id WHERE account.provider = model_routes.provider AND account.enabled = TRUE AND account.auth_status = 'active')`
 )
 
@@ -1270,7 +1278,7 @@ func (r *ModelRepository) annotateAvailability(ctx context.Context, values []mod
 		LEFT JOIN provider_accounts account ON account.provider = route.provider
 		LEFT JOIN model_route_accounts binding ON binding.model_route_id = route.id AND binding.account_id = account.id
 		LEFT JOIN account_model_sync_states sync ON sync.account_id = account.id
-		LEFT JOIN account_model_capabilities capability ON capability.account_id = account.id AND capability.upstream_model = route.upstream_model
+		LEFT JOIN account_model_capabilities capability ON capability.account_id = account.id AND `+modelCapabilityMatchOnRoute+`
 		WHERE route.id IN ?
 		GROUP BY route.id
 	`, lastSyncedExpression), account.AuthStatusActive, account.AuthStatusActive, account.AuthStatusActive, account.AuthStatusActive, account.AuthStatusActive, ids).Scan(&rows).Error

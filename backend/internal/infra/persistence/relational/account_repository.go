@@ -11,6 +11,7 @@ import (
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	"github.com/chenyme/grok2api/backend/internal/domain/media"
+	"github.com/chenyme/grok2api/backend/internal/domain/model"
 	"github.com/chenyme/grok2api/backend/internal/repository"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -394,7 +395,7 @@ func (r *AccountRepository) ListRoutingCandidates(ctx context.Context, provider 
 			Table("account_model_capabilities AS capability").
 			Select("capability.*").
 			Joins("JOIN provider_accounts AS account ON account.id = capability.account_id").
-			Where("account.provider = ? AND account.enabled = ? AND account.auth_status = ? AND capability.upstream_model = ?", provider, true, account.AuthStatusActive, upstreamModel).
+			Where("account.provider = ? AND account.enabled = ? AND account.auth_status = ? AND capability.upstream_model IN ?", provider, true, account.AuthStatusActive, model.CapabilityModelsForUpstream(upstreamModel)).
 			Find(&capabilities).Error; err != nil {
 			return nil, err
 		}
@@ -786,7 +787,7 @@ func (r *AccountRepository) ListRoutingAccountOverlays(ctx context.Context, prov
 		Table("account_model_capabilities AS capability").
 		Select("capability.account_id").
 		Joins("JOIN provider_accounts AS account ON account.id = capability.account_id").
-		Where("account.provider = ? AND account.enabled = TRUE AND capability.upstream_model = ?", provider, upstreamModel).
+		Where("account.provider = ? AND account.enabled = TRUE AND capability.upstream_model IN ?", provider, model.CapabilityModelsForUpstream(upstreamModel)).
 		Find(&capabilities).Error; err != nil {
 		return account.RoutingOverlaySnapshot{}, err
 	}

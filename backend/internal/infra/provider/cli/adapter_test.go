@@ -844,6 +844,24 @@ func TestNormalizeAccountModelCapabilitiesKeepsGrok45ForBuildGrok46(t *testing.T
 	}
 }
 
+func TestNormalizeAccountModelCapabilitiesKeepsOlderTextModelsForBuildGrok47(t *testing.T) {
+	adapter := &Adapter{}
+	build := account.Credential{Provider: account.ProviderBuild}
+	got := adapter.NormalizeAccountModelCapabilities([]string{"grok-4.7"}, nil, build)
+	if len(got) != 3 || got[0] != "grok-4.7" || got[1] != "grok-4.6" || got[2] != "grok-4.5" {
+		t.Fatalf("Build Grok 4.7 compatibility capabilities = %#v", got)
+	}
+	got = adapter.NormalizeAccountModelCapabilities([]string{"grok-4.7", "grok-4.6"}, nil, build)
+	if len(got) != 3 || got[0] != "grok-4.7" || got[1] != "grok-4.6" || got[2] != "grok-4.5" {
+		t.Fatalf("Build Grok 4.7 compatibility was not deduplicated: %#v", got)
+	}
+	console := account.Credential{Provider: account.ProviderConsole}
+	got = adapter.NormalizeAccountModelCapabilities([]string{"grok-4.7"}, nil, console)
+	if len(got) != 1 || got[0] != "grok-4.7" {
+		t.Fatalf("Build compatibility leaked to Console: %#v", got)
+	}
+}
+
 func TestGrokSessionIDFollowsConversationIdentity(t *testing.T) {
 	explicit := "019f6b02-5bae-7cf3-b26e-73e85c861749"
 	if value, err := grokSessionID(explicit); err != nil || value != explicit {

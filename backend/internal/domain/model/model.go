@@ -227,3 +227,54 @@ func DisplayUpstreamModel(provider account.Provider, value string) string {
 	}
 	return provider.ModelNamespace() + "/" + upstream
 }
+
+// buildTextLineage is oldest-to-newest. A Grok Build session whose live catalog
+// contains a newer member still accepts the older ids, so those routes stay
+// supported after /models stops listing them.
+var buildTextLineage = []string{"grok-4.5", "grok-4.6", "grok-4.7"}
+
+// CapabilityModelsForUpstream returns stored capability ids that can serve upstream.
+// For the Build text line, a newer catalog entry covers every older id.
+func CapabilityModelsForUpstream(upstream string) []string {
+	upstream = strings.TrimSpace(upstream)
+	for index, model := range buildTextLineage {
+		if model == upstream {
+			return append([]string(nil), buildTextLineage[index:]...)
+		}
+	}
+	if upstream == "" {
+		return nil
+	}
+	return []string{upstream}
+}
+
+// InheritedBuildTextModels returns older Build text models implied by catalog.
+// grok-4.7 covers grok-4.6 and grok-4.5; grok-4.6 covers grok-4.5.
+func InheritedBuildTextModels(catalog []string) []string {
+	newest := -1
+	have := make(map[string]struct{}, len(catalog))
+	for _, model := range catalog {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		have[model] = struct{}{}
+		for index, candidate := range buildTextLineage {
+			if candidate == model && index > newest {
+				newest = index
+			}
+		}
+	}
+	if newest <= 0 {
+		return nil
+	}
+	inherited := make([]string, 0, newest)
+	for index := newest - 1; index >= 0; index-- {
+		model := buildTextLineage[index]
+		if _, exists := have[model]; exists {
+			continue
+		}
+		inherited = append(inherited, model)
+	}
+	return inherited
+}
