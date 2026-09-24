@@ -2329,6 +2329,10 @@ Object.assign(resources["zh-CN"].translation.accounts as unknown as Record<strin
   detectNoInvalid: "未发现失效账号。",
   detectNoResults: "暂无检测结果。",
   detectOutcome: { ok: "正常", invalid: "失效", failed: "失败" },
+  operationFailureTitle: "失败明细",
+  operationFailureDescription: "每个失败账号都保留了这次请求停在哪一步，以及上游返回的状态和错误。",
+  operationFailureLog: "{{count}} 个账号失败",
+  operationStage: { credential_refresh: "停在凭据刷新", billing_sync: "停在额度同步", quota_sync: "停在额度同步" },
   batchDetected: "账号检测完成：成功 {{succeeded}}，失败 {{failed}}",
   allDetected: "全量检测完成：成功 {{succeeded}}，失败 {{failed}}",
 });
@@ -2347,6 +2351,10 @@ Object.assign(resources.en.translation.accounts as unknown as Record<string, unk
   detectNoInvalid: "No invalid accounts found.",
   detectNoResults: "No detection results.",
   detectOutcome: { ok: "Healthy", invalid: "Invalid", failed: "Failed" },
+  operationFailureTitle: "Failure details",
+  operationFailureDescription: "Each failed account keeps the step where this run stopped and the status returned by upstream.",
+  operationFailureLog: "{{count}} accounts failed",
+  operationStage: { credential_refresh: "Stopped at credential refresh", billing_sync: "Stopped at quota sync", quota_sync: "Stopped at quota sync" },
   batchDetected: "Detection complete: {{succeeded}} succeeded, {{failed}} failed",
   allDetected: "Full detection complete: {{succeeded}} succeeded, {{failed}} failed",
 });

@@ -327,7 +327,16 @@ export function enableWebAccountNSFW(id: string): Promise<{ completed: boolean }
   return apiRequest(`/api/admin/v1/accounts/web/${id}/nsfw`, { method: "POST" }, decodeBooleanResult<{ completed: boolean }>("completed"));
 }
 
-export type AccountBatchResultDTO = { succeeded: number; failed: number };
+export type AccountOperationFailureDTO = {
+  id: string;
+  name: string;
+  email?: string;
+  stage: string;
+  httpStatus?: number;
+  code?: string;
+  detail: string;
+};
+export type AccountBatchResultDTO = { succeeded: number; failed: number; failures?: AccountOperationFailureDTO[] };
 export type AccountTokenRefreshResultDTO = AccountBatchResultDTO & { skipped: number };
 
 /** 管理端 Grok Build 检测的单账号增量结果（SSE event: item）。 */
@@ -387,7 +396,12 @@ export type AccountImportResultDTO = {
 
 export type WebConsoleSyncResultDTO = AccountImportResultDTO & { skipped: number };
 
-type AccountTaskStreamPayload = Partial<BuildConversionResultDTO & AccountTaskProgressDTO & AccountTokenRefreshResultDTO & AccountImportResultDTO & BuildDetectItemDTO> & {
+const accountOperationFailureValidator = hasShape({
+  id: isString, name: isString, email: isOptional(isString), stage: isString,
+  httpStatus: isOptional(isNumber), code: isOptional(isString), detail: isString,
+});
+
+type AccountTaskStreamPayload = Partial<BuildConversionResultDTO & AccountTaskProgressDTO & AccountTokenRefreshResultDTO & AccountImportResultDTO & BuildDetectItemDTO & AccountOperationFailureDTO> & {
   code?: string;
   message?: string;
   outcome?: string;
@@ -396,6 +410,8 @@ type AccountTaskStreamPayload = Partial<BuildConversionResultDTO & AccountTaskPr
   id?: string;
   name?: string;
   email?: string;
+  stage?: string;
+  detail?: string;
 };
 
 const decodeAccountTaskStreamPayload = createObjectDecoder<AccountTaskStreamPayload>("account task event", {
@@ -405,6 +421,7 @@ const decodeAccountTaskStreamPayload = createObjectDecoder<AccountTaskStreamPayl
   code: isOptional(isString), message: isOptional(isString),
   id: isOptional(isString), name: isOptional(isString), email: isOptional(isString),
   outcome: isOptional(isOneOf("ok", "invalid", "failed")), reason: isOptional(isString), httpStatus: isOptional(isNumber),
+  stage: isOptional(isString), detail: isOptional(isString),
 });
 
 function hasNumericResult(value: AccountTaskStreamPayload, fields: string[]): boolean {
@@ -416,6 +433,7 @@ function hasNumericResult(value: AccountTaskStreamPayload, fields: string[]): bo
 
 type AccountTaskOptions = {
   onProgress?: (value: AccountTaskProgressDTO) => void;
+  onFailure?: (value: AccountOperationFailureDTO) => void;
   signal?: AbortSignal;
   phases?: readonly AccountTaskProgressPhase[];
 };
@@ -438,6 +456,18 @@ async function runAccountTask<T>(path: string, body: BodyInit | object | undefin
         progress.report({ completed: data.completed, total: data.total, phase });
         return;
       }
+      if (event === "item" && typeof data.id === "string" && typeof data.name === "string" && typeof data.stage === "string" && typeof data.detail === "string") {
+        options.onFailure?.({
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          stage: data.stage,
+          httpStatus: data.httpStatus,
+          code: data.code,
+          detail: data.detail,
+        });
+        return;
+      }
       if (event === "complete") {
         progress.flush();
         if (hasNumericResult(data, resultFields)) result = data as T;
@@ -457,8 +487,8 @@ async function runAccountTask<T>(path: string, body: BodyInit | object | undefin
   return result;
 }
 
-export function refreshAllAccountBilling(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal): Promise<AccountBatchResultDTO> {
-  return runAccountTask("/api/admin/v1/accounts/refresh-billing", undefined, ["succeeded", "failed"], { onProgress, signal });
+export function refreshAllAccountBilling(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal, onFailure?: (value: AccountOperationFailureDTO) => void): Promise<AccountBatchResultDTO> {
+  return runAccountTask("/api/admin/v1/accounts/refresh-billing", undefined, ["succeeded", "failed"], { onProgress, onFailure, signal });
 }
 
 export type DetectBuildAccountsInput =
@@ -515,16 +545,16 @@ async function runDetectBuildAccountsTask(body: object, handlers: BuildDetectHan
   return result;
 }
 
-export function refreshAllAccountTokens(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal): Promise<AccountTokenRefreshResultDTO> {
-  return runAccountTask("/api/admin/v1/accounts/refresh-tokens", undefined, ["succeeded", "failed", "skipped"], { onProgress, signal });
+export function refreshAllAccountTokens(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal, onFailure?: (value: AccountOperationFailureDTO) => void): Promise<AccountTokenRefreshResultDTO> {
+  return runAccountTask("/api/admin/v1/accounts/refresh-tokens", undefined, ["succeeded", "failed", "skipped"], { onProgress, onFailure, signal });
 }
 
-export function refreshAllWebAccountQuotas(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal): Promise<AccountBatchResultDTO> {
-  return runAccountTask("/api/admin/v1/accounts/web/refresh-quotas", undefined, ["succeeded", "failed"], { onProgress, signal });
+export function refreshAllWebAccountQuotas(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal, onFailure?: (value: AccountOperationFailureDTO) => void): Promise<AccountBatchResultDTO> {
+  return runAccountTask("/api/admin/v1/accounts/web/refresh-quotas", undefined, ["succeeded", "failed"], { onProgress, onFailure, signal });
 }
 
-export function refreshAllConsoleAccountQuotas(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal): Promise<AccountBatchResultDTO> {
-  return runAccountTask("/api/admin/v1/accounts/console/refresh-quotas", undefined, ["succeeded", "failed"], { onProgress, signal });
+export function refreshAllConsoleAccountQuotas(onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal, onFailure?: (value: AccountOperationFailureDTO) => void): Promise<AccountBatchResultDTO> {
+  return runAccountTask("/api/admin/v1/accounts/console/refresh-quotas", undefined, ["succeeded", "failed"], { onProgress, onFailure, signal });
 }
 
 export function convertWebAccountsToBuild(input: BuildConversionInput, onProgress?: (value: AccountTaskProgressDTO) => void, signal?: AbortSignal): Promise<BuildConversionResultDTO> {
@@ -613,8 +643,8 @@ export function updateAccountsMaxConcurrent(ids: string[], maxConcurrent: number
   return apiRequest("/api/admin/v1/accounts/batch", { method: "PATCH", body: { ids, maxConcurrent, provider } }, decodeCountResult<{ updated: number }>("updated"));
 }
 
-export function refreshAccountsQuota(ids: string[], provider: AccountProvider): Promise<{ succeeded: number; failed: number }> {
-  return apiRequest("/api/admin/v1/accounts/batch/refresh-quotas", { method: "POST", body: { ids, provider } }, createObjectDecoder("account batch", { succeeded: isNumber, failed: isNumber }));
+export function refreshAccountsQuota(ids: string[], provider: AccountProvider): Promise<AccountBatchResultDTO> {
+  return apiRequest("/api/admin/v1/accounts/batch/refresh-quotas", { method: "POST", body: { ids, provider } }, createObjectDecoder("account batch", { succeeded: isNumber, failed: isNumber, failures: isOptional(isArrayOf(accountOperationFailureValidator)) }));
 }
 
 export function resetAccountsQuota(ids: string[], provider: AccountProvider): Promise<{ reset: number }> {
@@ -626,7 +656,7 @@ export function resetAllAccountQuota(): Promise<{ reset: number }> {
 }
 
 export function refreshAccountsTokens(ids: string[], provider: AccountProvider): Promise<AccountTokenRefreshResultDTO> {
-  return apiRequest("/api/admin/v1/accounts/batch/refresh-tokens", { method: "POST", body: { ids, provider } }, createObjectDecoder("account token refresh batch", { succeeded: isNumber, failed: isNumber, skipped: isNumber }));
+  return apiRequest("/api/admin/v1/accounts/batch/refresh-tokens", { method: "POST", body: { ids, provider } }, createObjectDecoder("account token refresh batch", { succeeded: isNumber, failed: isNumber, skipped: isNumber, failures: isOptional(isArrayOf(accountOperationFailureValidator)) }));
 }
 
 export type CleanupResultDTO = {

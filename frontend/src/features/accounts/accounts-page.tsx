@@ -80,6 +80,7 @@ import {
   type AccountTaskProgressDTO,
   type BuildConversionInput,
   type BuildConversionStrategy,
+  type AccountOperationFailureDTO,
   type BuildDetectItemDTO,
   type WebConsoleSyncInput,
   type WebAccountScriptActions,
@@ -181,6 +182,21 @@ export function AccountsPage() {
   const [webAccountScriptsProgress, setWebAccountScriptsProgress] = useState<AccountTaskProgressDTO | null>(null);
   const [renewAllOpen, setRenewAllOpen] = useState(false);
   const [renewalProgress, setRenewalProgress] = useState<AccountTaskProgressDTO | null>(null);
+  const [renewalFailures, setRenewalFailures] = useState<AccountOperationFailureDTO[]>([]);
+  const [quotaSyncFailures, setQuotaSyncFailures] = useState<AccountOperationFailureDTO[]>([]);
+  const [batchQuotaFailures, setBatchQuotaFailures] = useState<AccountOperationFailureDTO[]>([]);
+  const [tokenRefreshLog, setTokenRefreshLog] = useState<AccountOperationFailureDTO[] | null>(null);
+  const renewalFailuresRef = useRef<AccountOperationFailureDTO[]>([]);
+  const quotaSyncFailuresRef = useRef<AccountOperationFailureDTO[]>([]);
+  const rememberOperationFailure = useCallback((
+    ref: { current: AccountOperationFailureDTO[] },
+    setItems: (items: AccountOperationFailureDTO[]) => void,
+    item: AccountOperationFailureDTO,
+  ) => {
+    const next = [item, ...ref.current.filter((entry) => entry.id !== item.id)].slice(0, 200);
+    ref.current = next;
+    setItems(next);
+  }, []);
   const [editing, setEditing] = useState<AccountDTO | null>(null);
   const [deleting, setDeleting] = useState<AccountDTO | null>(null);
   const [linkedDeleteTargets, setLinkedDeleteTargets] = useState<AccountProvider[]>([]);
@@ -551,11 +567,13 @@ export function AccountsPage() {
       const controller = new AbortController();
       renewalAbortRef.current = controller;
       setRenewalProgress(null);
-      return refreshAllAccountTokens(setRenewalProgress, controller.signal);
+      renewalFailuresRef.current = [];
+      setRenewalFailures([]);
+      return refreshAllAccountTokens(setRenewalProgress, controller.signal, (item) => rememberOperationFailure(renewalFailuresRef, setRenewalFailures, item));
     },
     onSuccess: (result) => {
-      setRenewAllOpen(false);
       toast.success(t("accounts.allTokensRefreshed", result));
+      if (renewalFailuresRef.current.length === 0) setRenewAllOpen(false);
     },
     onError: (error) => { if (!isAbortError(error)) showError(error); },
     onSettled: () => { renewalAbortRef.current = null; setRenewalProgress(null); invalidateAccountData(); },
@@ -566,13 +584,16 @@ export function AccountsPage() {
       const controller = new AbortController();
       quotaSyncAbortRef.current = controller;
       setQuotaSyncProgress(null);
-      if (targetProvider === "grok_web") return refreshAllWebAccountQuotas(setQuotaSyncProgress, controller.signal);
-      if (targetProvider === "grok_console") return refreshAllConsoleAccountQuotas(setQuotaSyncProgress, controller.signal);
-      return refreshAllAccountBilling(setQuotaSyncProgress, controller.signal);
+      quotaSyncFailuresRef.current = [];
+      setQuotaSyncFailures([]);
+      const onFailure = (item: AccountOperationFailureDTO) => rememberOperationFailure(quotaSyncFailuresRef, setQuotaSyncFailures, item);
+      if (targetProvider === "grok_web") return refreshAllWebAccountQuotas(setQuotaSyncProgress, controller.signal, onFailure);
+      if (targetProvider === "grok_console") return refreshAllConsoleAccountQuotas(setQuotaSyncProgress, controller.signal, onFailure);
+      return refreshAllAccountBilling(setQuotaSyncProgress, controller.signal, onFailure);
     },
     onSuccess: (result) => {
-      setSyncAllOpen(false);
       toast.success(t("accounts.allBillingRefreshed", result));
+      if (quotaSyncFailuresRef.current.length === 0) setSyncAllOpen(false);
     },
     onError: (error) => { if (!isAbortError(error)) showError(error); },
     onSettled: () => { quotaSyncAbortRef.current = null; setQuotaSyncProgress(null); invalidateAccountData(); },
@@ -747,12 +768,19 @@ export function AccountsPage() {
   });
 
   const batchBillingMutation = useMutation({
-    mutationFn: () => refreshAccountsQuota([...selected], provider),
+    mutationFn: () => {
+      setBatchQuotaFailures([]);
+      return refreshAccountsQuota([...selected], provider);
+    },
     onSuccess: (result) => {
-      clearSelection();
-      setBatchQuotaTaskOpen(false);
       invalidateAccountData();
       toast.success(t("accounts.batchBillingRefreshed", result));
+      if (result.failures && result.failures.length > 0) {
+        setBatchQuotaFailures(result.failures);
+        return;
+      }
+      clearSelection();
+      setBatchQuotaTaskOpen(false);
     },
     onError: showError,
   });
@@ -840,6 +868,7 @@ export function AccountsPage() {
       clearSelection();
       invalidateAccountData();
       toast.success(t("accounts.allTokensRefreshed", result));
+      if (result.failures && result.failures.length > 0) setTokenRefreshLog(result.failures);
     },
     onError: showError,
   });
@@ -1565,7 +1594,11 @@ export function AccountsPage() {
 
       <AlertDialog open={syncAllOpen} onOpenChange={(open) => {
         if (quotaSyncMutation.isPending || allQuotaResetMutation.isPending) return;
-        if (!open) quotaSyncAbortRef.current?.abort();
+        if (!open) {
+          quotaSyncAbortRef.current?.abort();
+          quotaSyncFailuresRef.current = [];
+          setQuotaSyncFailures([]);
+        }
         setSyncAllOpen(open);
       }}>
         <AlertDialogContent>
@@ -1582,6 +1615,7 @@ export function AccountsPage() {
                 </TabsList>
               </Tabs>
               <p className="min-h-10 text-xs leading-5 text-muted-foreground">{t(allQuotaTask === "sync" ? "accounts.syncAllDescription" : "accountQuotaTask.resetAllDescription")}</p>
+              <AccountOperationFailureLog items={quotaSyncFailures} />
             </div>
           ) : null}
           <AlertDialogFooter>
@@ -1713,9 +1747,23 @@ export function AccountsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={renewAllOpen} onOpenChange={(open) => { if (!open) renewalAbortRef.current?.abort(); setRenewAllOpen(open); }}>
+      <Dialog open={tokenRefreshLog !== null} onOpenChange={(open) => { if (!open) setTokenRefreshLog(null); }}>
+        <DialogContent className="max-w-xl gap-4 sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("accounts.operationFailureTitle")}</DialogTitle>
+            <DialogDescription>{t("accounts.operationFailureDescription")}</DialogDescription>
+          </DialogHeader>
+          <AccountOperationFailureLog items={tokenRefreshLog ?? []} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTokenRefreshLog(null)}>{t("common.close")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={renewAllOpen} onOpenChange={(open) => { if (!open) { renewalAbortRef.current?.abort(); setRenewalFailures([]); renewalFailuresRef.current = []; } setRenewAllOpen(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>{t("accounts.renewAllTitle")}</AlertDialogTitle><AlertDialogDescription>{t("accounts.renewAllDescription")}</AlertDialogDescription></AlertDialogHeader>
+          <AccountOperationFailureLog items={renewalFailures} />
           <AlertDialogFooter><AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel><AlertDialogAction disabled={allTokenMutation.isPending} onClick={(event) => { event.preventDefault(); allTokenMutation.mutate(); }}>{allTokenMutation.isPending ? <><Spinner />{renewalProgress ? <span className="tabular-nums">{renewalProgress.completed} / {renewalProgress.total}</span> : t("common.loading")}</> : t("accounts.renewAll")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -2049,6 +2097,7 @@ export function AccountsPage() {
 
       <AlertDialog open={batchQuotaTaskOpen} onOpenChange={(open) => {
         if (batchBillingMutation.isPending || batchQuotaResetMutation.isPending) return;
+        if (!open) setBatchQuotaFailures([]);
         setBatchQuotaTaskOpen(open);
       }}>
         <AlertDialogContent>
@@ -2064,6 +2113,7 @@ export function AccountsPage() {
               </TabsList>
             </Tabs>
             <p className="min-h-10 text-xs leading-5 text-muted-foreground">{t(batchQuotaTask === "sync" ? "accountQuotaTask.syncDescription" : "accountQuotaReset.description")}</p>
+            <AccountOperationFailureLog items={batchQuotaFailures} />
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -2341,6 +2391,28 @@ function AccountTypeText({ label, title, variant }: { label: string; title?: str
     return <span title={title ?? label} className="text-xs text-muted-foreground">{label}</span>;
   }
   return <span title={title ?? label} className={cn("max-w-32 truncate text-xs font-medium", variant === "free" ? "text-emerald-700 dark:text-emerald-300" : "text-primary")}>{label}</span>;
+}
+
+function AccountOperationFailureLog({ items }: { items: AccountOperationFailureDTO[] }) {
+  const { t } = useTranslation();
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{t("accounts.operationFailureLog", { count: items.length })}</p>
+      <div className="max-h-64 overflow-y-auto rounded-md border">
+        <ul className="divide-y">
+          {items.map((item) => (
+            <li key={`${item.id}-${item.stage}`} className="px-3 py-2 text-sm">
+              <div className="truncate font-medium">{item.name || item.id}</div>
+              {item.email ? <div className="truncate text-xs text-muted-foreground">{item.email}</div> : null}
+              <div className="mt-0.5 text-xs text-muted-foreground">{t(`accounts.operationStage.${item.stage}`, { defaultValue: item.stage })}</div>
+              <div className="mt-0.5 whitespace-pre-wrap break-all text-xs">{item.detail}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 function AccountStatus({ account }: { account: AccountDTO }) {

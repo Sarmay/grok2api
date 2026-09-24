@@ -3818,6 +3818,11 @@ func (s *Service) SyncAllBilling(ctx context.Context) (int, int, error) {
 }
 
 func (s *Service) SyncAllBillingWithProgress(ctx context.Context, progress BatchProgressObserver) (int, int, error) {
+	return s.SyncAllBillingObserved(ctx, progress, nil)
+}
+
+// SyncAllBillingObserved reports each account whose billing sync failed.
+func (s *Service) SyncAllBillingObserved(ctx context.Context, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
 	if s.providers == nil {
 		return 0, 0, fmt.Errorf("Provider 注册表未初始化")
 	}
@@ -3833,7 +3838,7 @@ func (s *Service) SyncAllBillingWithProgress(ctx context.Context, progress Batch
 		}
 		ids = append(ids, providerIDs...)
 	}
-	return s.refreshBillings(ctx, ids, progress)
+	return s.refreshBillings(ctx, ids, progress, onFailure)
 }
 
 // SyncAllWebQuotas 尽力同步全部启用 Grok Web 账号的分模式额度。
@@ -3845,12 +3850,22 @@ func (s *Service) SyncAllWebQuotasWithProgress(ctx context.Context, progress Bat
 	return s.syncAllQuotasWithProgress(ctx, accountdomain.ProviderWeb, "web_quota_sync", progress)
 }
 
+// SyncAllWebQuotasObserved reports each Grok Web account whose quota sync failed.
+func (s *Service) SyncAllWebQuotasObserved(ctx context.Context, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
+	return s.syncAllQuotasObserved(ctx, accountdomain.ProviderWeb, "web_quota_sync", progress, onFailure)
+}
+
 func (s *Service) SyncAllConsoleQuotas(ctx context.Context) (int, int, error) {
 	return s.SyncAllConsoleQuotasWithProgress(ctx, nil)
 }
 
 func (s *Service) SyncAllConsoleQuotasWithProgress(ctx context.Context, progress BatchProgressObserver) (int, int, error) {
 	return s.syncAllQuotasWithProgress(ctx, accountdomain.ProviderConsole, "console_quota_sync", progress)
+}
+
+// SyncAllConsoleQuotasObserved reports each Grok Console account whose quota sync failed.
+func (s *Service) SyncAllConsoleQuotasObserved(ctx context.Context, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
+	return s.syncAllQuotasObserved(ctx, accountdomain.ProviderConsole, "console_quota_sync", progress, onFailure)
 }
 
 // SyncIncompleteConsoleQuotas replaces pre-/usage synthetic windows and
@@ -4024,11 +4039,15 @@ func completeConsoleUsageSnapshot(windows []accountdomain.QuotaWindow) bool {
 }
 
 func (s *Service) syncAllQuotasWithProgress(ctx context.Context, providerValue accountdomain.Provider, operation string, progress BatchProgressObserver) (int, int, error) {
+	return s.syncAllQuotasObserved(ctx, providerValue, operation, progress, nil)
+}
+
+func (s *Service) syncAllQuotasObserved(ctx context.Context, providerValue accountdomain.Provider, operation string, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
 	ids, err := s.accounts.ListEnabledAccountIDs(ctx, providerValue, false)
 	if err != nil {
 		return 0, 0, err
 	}
-	return s.runAccountBatch(ctx, operation, ids, s.syncPool, progress, func(workCtx context.Context, id uint64) error {
+	return s.runAccountBatchObserved(ctx, operation, ids, s.syncPool, progress, onFailure, func(workCtx context.Context, id uint64) error {
 		_, err := s.RefreshQuota(workCtx, id)
 		return err
 	})
@@ -4048,6 +4067,11 @@ func (s *Service) RefreshAllTokens(ctx context.Context) (int, int, int, error) {
 }
 
 func (s *Service) RefreshAllTokensWithProgress(ctx context.Context, progress BatchProgressObserver) (int, int, int, error) {
+	return s.RefreshAllTokensObserved(ctx, progress, nil)
+}
+
+// RefreshAllTokensObserved reports each failed account while refreshing credentials.
+func (s *Service) RefreshAllTokensObserved(ctx context.Context, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, int, error) {
 	if s.providers == nil {
 		return 0, 0, 0, fmt.Errorf("Provider 注册表未初始化")
 	}
@@ -4069,12 +4093,12 @@ func (s *Service) RefreshAllTokensWithProgress(ctx context.Context, progress Bat
 		ids = append(ids, refreshableIDs...)
 	}
 	skipped := max(0, len(allIDs)-len(ids))
-	succeeded, failed, err := s.refreshTokens(ctx, ids, progress)
+	succeeded, failed, err := s.refreshTokens(ctx, ids, progress, onFailure)
 	return succeeded, failed, skipped, err
 }
 
-func (s *Service) refreshTokens(ctx context.Context, ids []uint64, progress BatchProgressObserver) (int, int, error) {
-	return s.runAccountBatch(ctx, "credential_refresh", ids, s.refreshPool, progress, func(workCtx context.Context, id uint64) error {
+func (s *Service) refreshTokens(ctx context.Context, ids []uint64, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
+	return s.runAccountBatchObserved(ctx, "credential_refresh", ids, s.refreshPool, progress, onFailure, func(workCtx context.Context, id uint64) error {
 		value, err := s.accounts.Get(workCtx, id)
 		if err == nil {
 			_, err = s.ensureCredential(workCtx, value, ensureCredentialOptions{force: true, bypassCooldown: true, retryPermanentOnce: true})
@@ -4086,6 +4110,11 @@ func (s *Service) refreshTokens(ctx context.Context, ids []uint64, progress Batc
 // BatchRefreshTokens 续期指定账号的凭据；失效账号会强制向上游重试一次，
 // 停用、Provider 不支持或缺少刷新凭据的账号会被跳过。
 func (s *Service) BatchRefreshTokens(ctx context.Context, ids []uint64) (int, int, int, error) {
+	return s.BatchRefreshTokensObserved(ctx, ids, nil)
+}
+
+// BatchRefreshTokensObserved reports each selected account whose credential refresh failed.
+func (s *Service) BatchRefreshTokensObserved(ctx context.Context, ids []uint64, onFailure AccountOperationFailureObserver) (int, int, int, error) {
 	values, err := normalizeBatchIDs(ids)
 	if err != nil {
 		return 0, 0, 0, err
@@ -4105,17 +4134,22 @@ func (s *Service) BatchRefreshTokens(ctx context.Context, ids []uint64) (int, in
 		refreshableIDs = append(refreshableIDs, id)
 	}
 	skipped := len(values) - len(refreshableIDs)
-	succeeded, failed, err := s.refreshTokens(ctx, refreshableIDs, nil)
+	succeeded, failed, err := s.refreshTokens(ctx, refreshableIDs, nil, onFailure)
 	return succeeded, failed, skipped, err
 }
 
 // BatchRefreshBilling 使用有限并发刷新选中账号，避免大量账号同步时串行阻塞或无界创建 goroutine。
 func (s *Service) BatchRefreshBilling(ctx context.Context, ids []uint64) (int, int, error) {
+	return s.BatchRefreshBillingObserved(ctx, ids, nil)
+}
+
+// BatchRefreshBillingObserved reports each selected account whose quota sync failed.
+func (s *Service) BatchRefreshBillingObserved(ctx context.Context, ids []uint64, onFailure AccountOperationFailureObserver) (int, int, error) {
 	values, err := normalizeBatchIDs(ids)
 	if err != nil {
 		return 0, 0, err
 	}
-	return s.refreshBillings(ctx, values, nil)
+	return s.refreshBillings(ctx, values, nil, onFailure)
 }
 
 // DetectBuildAccountsWithProgress 对指定或全部 Grok Build 账号发起探测请求；all 与 ids 必须且只能提供一个。
@@ -4529,24 +4563,33 @@ func (s *Service) ResetAllBuildQuotaState(ctx context.Context) (int64, error) {
 
 // BatchRefreshQuota 使用有限并发同步选中 Web 或 Console 账号的额度窗口。
 func (s *Service) BatchRefreshQuota(ctx context.Context, ids []uint64) (int, int, error) {
+	return s.BatchRefreshQuotaObserved(ctx, ids, nil)
+}
+
+// BatchRefreshQuotaObserved reports each selected account whose quota sync failed.
+func (s *Service) BatchRefreshQuotaObserved(ctx context.Context, ids []uint64, onFailure AccountOperationFailureObserver) (int, int, error) {
 	values, err := normalizeBatchIDs(ids)
 	if err != nil {
 		return 0, 0, err
 	}
-	return s.runAccountBatch(ctx, "quota_sync", values, s.syncPool, nil, func(workCtx context.Context, id uint64) error {
+	return s.runAccountBatchObserved(ctx, "quota_sync", values, s.syncPool, nil, onFailure, func(workCtx context.Context, id uint64) error {
 		_, err := s.RefreshQuota(workCtx, id)
 		return err
 	})
 }
 
-func (s *Service) refreshBillings(ctx context.Context, ids []uint64, progress BatchProgressObserver) (int, int, error) {
-	return s.runAccountBatch(ctx, "billing_sync", ids, s.syncPool, progress, func(workCtx context.Context, id uint64) error {
+func (s *Service) refreshBillings(ctx context.Context, ids []uint64, progress BatchProgressObserver, onFailure AccountOperationFailureObserver) (int, int, error) {
+	return s.runAccountBatchObserved(ctx, "billing_sync", ids, s.syncPool, progress, onFailure, func(workCtx context.Context, id uint64) error {
 		_, err := s.RefreshBilling(workCtx, id)
 		return err
 	})
 }
 
 func (s *Service) runAccountBatch(ctx context.Context, operation string, ids []uint64, pool *batch.Pool, progress BatchProgressObserver, work func(context.Context, uint64) error) (int, int, error) {
+	return s.runAccountBatchObserved(ctx, operation, ids, pool, progress, nil, work)
+}
+
+func (s *Service) runAccountBatchObserved(ctx context.Context, operation string, ids []uint64, pool *batch.Pool, progress BatchProgressObserver, onFailure AccountOperationFailureObserver, work func(context.Context, uint64) error) (int, int, error) {
 	if progress != nil {
 		if err := progress(0, len(ids)); err != nil {
 			return 0, 0, err
@@ -4558,7 +4601,30 @@ func (s *Service) runAccountBatch(ctx context.Context, operation string, ids []u
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	results, summary, err := batch.MapObserved(runCtx, ids, batch.Options{Workers: pool.Limit(), Pool: pool}, func(workCtx context.Context, id uint64) (struct{}, error) {
-		return struct{}{}, work(workCtx, id)
+		workErr := work(workCtx, id)
+		if workErr != nil && !errors.Is(workErr, context.Canceled) {
+			failure := s.accountOperationFailure(workCtx, id, operation, workErr)
+			s.logger.Warn("account_bulk_item_failed",
+				"operation", operation,
+				"account_id", failure.AccountID,
+				"account_name", failure.Name,
+				"stage", failure.Stage,
+				"http_status", failure.HTTPStatus,
+				"error_code", failure.Code,
+				"detail", failure.Detail,
+			)
+			if onFailure != nil {
+				notifyErr := func() error {
+					progressMu.Lock()
+					defer progressMu.Unlock()
+					return onFailure(failure)
+				}()
+				if notifyErr != nil {
+					return struct{}{}, notifyErr
+				}
+			}
+		}
+		return struct{}{}, workErr
 	}, func(_ int, _ batch.Result[struct{}]) {
 		progressMu.Lock()
 		defer progressMu.Unlock()
@@ -4578,6 +4644,25 @@ func (s *Service) runAccountBatch(ctx context.Context, operation string, ids []u
 	}
 	s.logBatchSummary(operation, pool, summary, err)
 	return summary.Succeeded, summary.Failed, errors.Join(err, progressErr)
+}
+
+func (s *Service) accountOperationFailure(ctx context.Context, id uint64, operation string, err error) AccountOperationFailure {
+	status, code, detail := classifyAccountOperationError(err)
+	if detail == "" && code == "" {
+		detail = "失败"
+	}
+	failure := AccountOperationFailure{
+		AccountID: id, Stage: accountOperationStage(operation, err),
+		HTTPStatus: status, Code: code, Detail: AccountOperationDetail(err),
+	}
+	if failure.Detail == "" {
+		failure.Detail = detail
+	}
+	if value, getErr := s.accounts.Get(ctx, id); getErr == nil {
+		failure.Name = value.Name
+		failure.Email = value.Email
+	}
+	return failure
 }
 
 func (s *Service) logBatchSummary(operation string, pool *batch.Pool, summary batch.Summary, err error) {
