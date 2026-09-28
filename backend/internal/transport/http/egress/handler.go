@@ -718,7 +718,9 @@ type nodeResponse struct {
 	ProbeProvider        string              `json:"probeProvider,omitempty"`
 	IPv4Probe            probeFamilyResponse `json:"ipv4Probe"`
 	IPv6Probe            probeFamilyResponse `json:"ipv6Probe"`
-	AssignedAccountCount int                 `json:"assignedAccountCount"`
+	AssignedAccountCount       int                 `json:"assignedAccountCount"`
+	ManualAssignedAccountCount int                 `json:"manualAssignedAccountCount"`
+	AutoAssignedAccountCount   int                 `json:"autoAssignedAccountCount"`
 }
 
 type probeFamilyResponse struct {
@@ -1113,7 +1115,7 @@ func newNodeResponse(value egressdomain.PublicNode) nodeResponse {
 		ProbeStatus: string(value.ProbeStatus), LastProbedAt: value.LastProbedAt, ProbeLatencyMS: value.ProbeLatencyMS, ExitIP: value.ExitIP, ProbeError: value.ProbeError,
 		ProbeProvider: string(value.ProbeProvider),
 		IPv4Probe:     newProbeFamilyResponse(value.IPv4Probe), IPv6Probe: newProbeFamilyResponse(value.IPv6Probe),
-		AssignedAccountCount: value.AssignedAccountCount,
+		AssignedAccountCount: value.AssignedAccountCount, ManualAssignedAccountCount: value.ManualAssignedAccountCount, AutoAssignedAccountCount: value.AutoAssignedAccountCount,
 	}
 }
 
@@ -1232,9 +1234,10 @@ type probeBatchRequest struct {
 type operationsConfigRequest struct {
 	ProbeProvider             string                               `json:"probeProvider"`
 	ProbeIntervalSeconds      int                                  `json:"probeIntervalSeconds"`
-	AutoAssignEnabled         bool                                 `json:"autoAssignEnabled"`
-	AutoBalanceEnabled        bool                                 `json:"autoBalanceEnabled"`
-	AssignmentIntervalSeconds int                                  `json:"assignmentIntervalSeconds"`
+	AutoAssignEnabled             bool                                 `json:"autoAssignEnabled"`
+	AutoBalanceEnabled            bool                                 `json:"autoBalanceEnabled"`
+	AutoCleanupUnavailableEnabled bool                                 `json:"autoCleanupUnavailableEnabled"`
+	AssignmentIntervalSeconds     int                                  `json:"assignmentIntervalSeconds"`
 	Fallbacks                 map[string]operationsFallbackRequest `json:"fallbacks"`
 }
 
@@ -1246,9 +1249,10 @@ type operationsFallbackRequest struct {
 type operationsConfigResponse struct {
 	ProbeProvider             string                                `json:"probeProvider"`
 	ProbeIntervalSeconds      int                                   `json:"probeIntervalSeconds"`
-	AutoAssignEnabled         bool                                  `json:"autoAssignEnabled"`
-	AutoBalanceEnabled        bool                                  `json:"autoBalanceEnabled"`
-	AssignmentIntervalSeconds int                                   `json:"assignmentIntervalSeconds"`
+	AutoAssignEnabled             bool                                  `json:"autoAssignEnabled"`
+	AutoBalanceEnabled            bool                                  `json:"autoBalanceEnabled"`
+	AutoCleanupUnavailableEnabled bool                                  `json:"autoCleanupUnavailableEnabled"`
+	AssignmentIntervalSeconds     int                                   `json:"assignmentIntervalSeconds"`
 	Fallbacks                 map[string]operationsFallbackResponse `json:"fallbacks"`
 	UpdatedAt                 time.Time                             `json:"updatedAt"`
 }
@@ -1261,7 +1265,7 @@ type operationsFallbackResponse struct {
 func (value operationsConfigRequest) input() (egressapp.OperationsConfigInput, error) {
 	result := egressapp.OperationsConfigInput{
 		ProbeProvider: egressdomain.ProbeProvider(strings.TrimSpace(value.ProbeProvider)), ProbeIntervalSeconds: value.ProbeIntervalSeconds, AutoAssignEnabled: value.AutoAssignEnabled,
-		AutoBalanceEnabled: value.AutoBalanceEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
+		AutoBalanceEnabled: value.AutoBalanceEnabled, AutoCleanupUnavailableEnabled: value.AutoCleanupUnavailableEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
 	}
 	if value.Fallbacks == nil {
 		return result, nil
@@ -1312,7 +1316,7 @@ func newOperationsConfigResponse(value egressdomain.OperationsConfig) operations
 	}
 	return operationsConfigResponse{
 		ProbeProvider: string(value.ProbeProvider.Normalized()), ProbeIntervalSeconds: value.ProbeIntervalSeconds, AutoAssignEnabled: value.AutoAssignEnabled,
-		AutoBalanceEnabled: value.AutoBalanceEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
+		AutoBalanceEnabled: value.AutoBalanceEnabled, AutoCleanupUnavailableEnabled: value.AutoCleanupUnavailableEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
 		Fallbacks: fallbacks, UpdatedAt: value.UpdatedAt,
 	}
 }

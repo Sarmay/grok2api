@@ -88,10 +88,11 @@ type ProbeBatchResult struct {
 
 type OperationsConfigInput struct {
 	ProbeProvider             domain.ProbeProvider
-	ProbeIntervalSeconds      int
-	AutoAssignEnabled         bool
-	AutoBalanceEnabled        bool
-	AssignmentIntervalSeconds int
+	ProbeIntervalSeconds          int
+	AutoAssignEnabled             bool
+	AutoBalanceEnabled            bool
+	AutoCleanupUnavailableEnabled bool
+	AssignmentIntervalSeconds     int
 	Fallbacks                 map[domain.Scope]FallbackConfigInput
 }
 
@@ -412,7 +413,7 @@ func (s *Service) UpdateOperationsConfig(ctx context.Context, input OperationsCo
 	}
 	saved, err := operations.SaveEgressOperationsConfig(ctx, domain.OperationsConfig{
 		ProbeProvider: probeProvider, ProbeIntervalSeconds: input.ProbeIntervalSeconds, AutoAssignEnabled: input.AutoAssignEnabled,
-		AutoBalanceEnabled: input.AutoBalanceEnabled, AssignmentIntervalSeconds: input.AssignmentIntervalSeconds,
+		AutoBalanceEnabled: input.AutoBalanceEnabled, AutoCleanupUnavailableEnabled: input.AutoCleanupUnavailableEnabled, AssignmentIntervalSeconds: input.AssignmentIntervalSeconds,
 		Fallbacks: fallbacks, UpdatedAt: time.Now().UTC(),
 	})
 	if errors.Is(err, repository.ErrEgressFallbackInUse) {

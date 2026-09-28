@@ -43,7 +43,9 @@ func (r *EgressRepository) ListEgressNodes(ctx context.Context, scope egress.Sco
 	}
 	for _, row := range rows {
 		value := toEgressDomain(row)
-		value.AssignedAccountCount = counts[value.ID]
+		value.AssignedAccountCount = counts[value.ID].Total
+		value.ManualAssignedAccountCount = counts[value.ID].Manual
+		value.AutoAssignedAccountCount = counts[value.ID].Auto
 		value.ProxyProfileName = profileNames[value.ProxyProfileID]
 		values = append(values, value)
 	}
@@ -105,7 +107,9 @@ func (r *EgressRepository) ListEgressNodePage(ctx context.Context, input reposit
 	values := make([]egress.Node, 0, len(rows))
 	for _, row := range rows {
 		value := toEgressDomain(row)
-		value.AssignedAccountCount = counts[value.ID]
+		value.AssignedAccountCount = counts[value.ID].Total
+		value.ManualAssignedAccountCount = counts[value.ID].Manual
+		value.AutoAssignedAccountCount = counts[value.ID].Auto
 		value.ProxyProfileName = profileNames[value.ProxyProfileID]
 		values = append(values, value)
 	}
@@ -772,8 +776,14 @@ func clearInvalidEgressFallbackNodeReferences(tx *gorm.DB) error {
 	return nil
 }
 
-func (r *EgressRepository) assignedAccountCounts(ctx context.Context) (map[uint64]int, error) {
+func (r *EgressRepository) assignedAccountCounts(ctx context.Context) (map[uint64]egressAssignmentCounts, error) {
 	return r.assignedAccountCountsForNodes(ctx, nil)
+}
+
+type egressAssignmentCounts struct {
+	Total  int
+	Manual int
+	Auto   int
 }
 
 func (r *EgressRepository) egressProxyProfileNames(ctx context.Context, nodes []egressNodeModel) (map[uint64]string, error) {
@@ -808,27 +818,31 @@ func (r *EgressRepository) egressProxyProfileNames(ctx context.Context, nodes []
 	return result, nil
 }
 
-func (r *EgressRepository) assignedAccountCountsForNodes(ctx context.Context, nodeIDs []uint64) (map[uint64]int, error) {
+func (r *EgressRepository) assignedAccountCountsForNodes(ctx context.Context, nodeIDs []uint64) (map[uint64]egressAssignmentCounts, error) {
 	type row struct {
 		NodeID uint64
-		Count  int
+		Total  int
+		Manual int
+		Auto   int
 	}
 	var rows []row
 	query := r.db.db.WithContext(ctx).Model(&accountModel{}).
-		Select("egress_node_id AS node_id, COUNT(*) AS count").
+		Select(`egress_node_id AS node_id, COUNT(*) AS total,
+			SUM(CASE WHEN egress_assignment_mode = 'manual' THEN 1 ELSE 0 END) AS manual,
+			SUM(CASE WHEN egress_assignment_mode = 'auto' THEN 1 ELSE 0 END) AS auto`).
 		Where("egress_node_id IS NOT NULL")
 	if nodeIDs != nil {
 		if len(nodeIDs) == 0 {
-			return map[uint64]int{}, nil
+			return map[uint64]egressAssignmentCounts{}, nil
 		}
 		query = query.Where("egress_node_id IN ?", nodeIDs)
 	}
 	if err := query.Group("egress_node_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	result := make(map[uint64]int, len(rows))
+	result := make(map[uint64]egressAssignmentCounts, len(rows))
 	for _, row := range rows {
-		result[row.NodeID] = row.Count
+		result[row.NodeID] = egressAssignmentCounts{Total: row.Total, Manual: row.Manual, Auto: row.Auto}
 	}
 	return result, nil
 }
@@ -929,6 +943,7 @@ func toEgressOperationsConfigDomain(row egressOperationsConfigModel) egress.Oper
 	return egress.OperationsConfig{
 		ProbeProvider:        egress.ProbeProvider(row.ProbeProvider).Normalized(),
 		ProbeIntervalSeconds: row.ProbeIntervalSeconds, AutoAssignEnabled: row.AutoAssignEnabled, AutoBalanceEnabled: row.AutoBalanceEnabled,
+		AutoCleanupUnavailableEnabled: row.AutoCleanupUnavailableEnabled,
 		AssignmentIntervalSeconds: row.AssignmentIntervalSeconds,
 		Fallbacks: map[egress.Scope]egress.FallbackConfig{
 			egress.ScopeBuild:        {Mode: egress.FallbackMode(row.BuildFallbackMode).Normalized(), NodeID: row.BuildFallbackNodeID},
@@ -949,7 +964,7 @@ func fromEgressOperationsConfigDomain(value egress.OperationsConfig) egressOpera
 	consoleAssetFallback := value.FallbackFor(egress.ScopeConsoleAsset)
 	return egressOperationsConfigModel{
 		ID: 1, ProbeProvider: string(value.ProbeProvider.Normalized()), ProbeIntervalSeconds: value.ProbeIntervalSeconds, AutoAssignEnabled: value.AutoAssignEnabled,
-		AutoBalanceEnabled: value.AutoBalanceEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
+		AutoBalanceEnabled: value.AutoBalanceEnabled, AutoCleanupUnavailableEnabled: value.AutoCleanupUnavailableEnabled, AssignmentIntervalSeconds: value.AssignmentIntervalSeconds,
 		BuildFallbackMode: string(buildFallback.Mode), BuildFallbackNodeID: buildFallback.NodeID,
 		WebFallbackMode: string(webFallback.Mode), WebFallbackNodeID: webFallback.NodeID,
 		ConsoleFallbackMode: string(consoleFallback.Mode), ConsoleFallbackNodeID: consoleFallback.NodeID,

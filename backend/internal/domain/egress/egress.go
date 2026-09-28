@@ -52,6 +52,8 @@ type Node struct {
 	IPv4Probe                   ProbeFamilyResult
 	IPv6Probe                   ProbeFamilyResult
 	AssignedAccountCount        int
+	ManualAssignedAccountCount  int
+	AutoAssignedAccountCount    int
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
 }
@@ -82,11 +84,13 @@ type PublicNode struct {
 	ExitIP               string
 	ProbeError           string
 	ProbeProvider        ProbeProvider
-	IPv4Probe            ProbeFamilyResult
-	IPv6Probe            ProbeFamilyResult
-	AssignedAccountCount int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	IPv4Probe                  ProbeFamilyResult
+	IPv6Probe                  ProbeFamilyResult
+	AssignedAccountCount       int
+	ManualAssignedAccountCount int
+	AutoAssignedAccountCount   int
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
 }
 
 // ProxyProfile is a reusable physical proxy configuration. Provider-specific
@@ -243,10 +247,11 @@ func (value ProbeProvider) Normalized() ProbeProvider {
 // and fallback routing.
 type OperationsConfig struct {
 	ProbeProvider             ProbeProvider
-	ProbeIntervalSeconds      int
-	AutoAssignEnabled         bool
-	AutoBalanceEnabled        bool
-	AssignmentIntervalSeconds int
+	ProbeIntervalSeconds         int
+	AutoAssignEnabled            bool
+	AutoBalanceEnabled           bool
+	AutoCleanupUnavailableEnabled bool
+	AssignmentIntervalSeconds    int
 	Fallbacks                 map[Scope]FallbackConfig
 	UpdatedAt                 time.Time
 }

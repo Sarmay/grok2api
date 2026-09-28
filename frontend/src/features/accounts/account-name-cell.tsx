@@ -1,6 +1,7 @@
 import { Bot, Compass, Handshake, SquareTerminal, VenusAndMars, Webhook, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AccountDTO, AccountProvider, LinkedAccountDTO } from "@/features/accounts/accounts-api";
 import { cn } from "@/shared/lib/cn";
@@ -17,6 +18,21 @@ const providerIcon: Record<AccountProvider, { icon: LucideIcon; className: strin
   grok_web: { icon: Compass, className: "text-quota-product-2" },
   grok_console: { icon: Webhook, className: "text-quota-product-4" },
 };
+
+function EgressBindingBadge({ mode }: { mode: "manual" | "auto" }) {
+  const { t } = useTranslation();
+  const manual = mode === "manual";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant={manual ? "outline" : "secondary"} className={manual ? "h-4 shrink-0 px-1 text-[10px] text-amber-700 dark:text-amber-300" : "h-4 shrink-0 px-1 text-[10px]"}>
+          {t(manual ? "settings.egress.bindingManual" : "settings.egress.bindingAuto")}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">{t(manual ? "settings.egress.bindingManualHelp" : "settings.egress.bindingAutoHelp")}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function identityDetails(name: string, email?: string, userId?: string): string[] {
   const values = [email?.trim() || name.trim(), userId?.trim()];
@@ -59,6 +75,7 @@ export function AccountNameCell({ account }: { account: AccountDTO }) {
           </TooltipTrigger>
           <TooltipContent>{account.name}</TooltipContent>
         </Tooltip>
+        {account.egressNodeId && account.egressAssignmentMode ? <EgressBindingBadge mode={account.egressAssignmentMode} /> : null}
       </div>
       <div className="flex min-h-4 w-fit min-w-0 items-center">
         <Tooltip>

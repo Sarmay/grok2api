@@ -1274,7 +1274,7 @@ func (s *Service) publicNode(value domain.Node) domain.PublicNode {
 		ProbeStatus: value.ProbeStatus, LastProbedAt: value.LastProbedAt, ProbeLatencyMS: value.ProbeLatencyMS, ExitIP: value.ExitIP, ProbeError: value.ProbeError,
 		ProbeProvider: value.ProbeProvider,
 		IPv4Probe:     value.IPv4Probe, IPv6Probe: value.IPv6Probe,
-		AssignedAccountCount: value.AssignedAccountCount,
+		AssignedAccountCount: value.AssignedAccountCount, ManualAssignedAccountCount: value.ManualAssignedAccountCount, AutoAssignedAccountCount: value.AutoAssignedAccountCount,
 		CreatedAt:            value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 }

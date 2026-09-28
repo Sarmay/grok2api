@@ -440,6 +440,7 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 			resultErr = errors.Join(resultErr, probeErr)
 		}
 	}
+	rebalanceFailed := false
 	if config.AutoAssignEnabled || config.AutoBalanceEnabled {
 		s.mu.Lock()
 		due := !s.assignmentRunning && (s.lastAssignmentRun.IsZero() || time.Since(s.lastAssignmentRun) >= time.Duration(config.AssignmentIntervalSeconds)*time.Second)
@@ -456,8 +457,16 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 			}
 			s.mu.Unlock()
 			if balanceErr != nil {
+				rebalanceFailed = true
 				resultErr = errors.Join(resultErr, balanceErr)
 			}
+		}
+	}
+	// Move automatic bindings off ineligible nodes before deleting them. A failed
+	// rebalance keeps the nodes so those accounts are not unbound without a new home.
+	if config.AutoCleanupUnavailableEnabled && !rebalanceFailed {
+		if _, cleanupErr := s.DeleteUnhealthy(ctx); cleanupErr != nil {
+			resultErr = errors.Join(resultErr, cleanupErr)
 		}
 	}
 	return resultErr

@@ -67,7 +67,7 @@ function defaultFallbacks(): Record<EgressScope, EgressFallbackConfigDTO> {
 }
 
 const defaultOperationsForm: Omit<EgressOperationsConfigDTO, "updatedAt"> = {
-  probeProvider: "cloudflare", probeIntervalSeconds: 900, autoAssignEnabled: false, autoBalanceEnabled: false, assignmentIntervalSeconds: 300, fallbacks: defaultFallbacks(),
+  probeProvider: "cloudflare", probeIntervalSeconds: 900, autoAssignEnabled: false, autoBalanceEnabled: false, autoCleanupUnavailableEnabled: false, assignmentIntervalSeconds: 300, fallbacks: defaultFallbacks(),
 };
 
 function operationsFormFrom(value?: EgressOperationsConfigDTO): Omit<EgressOperationsConfigDTO, "updatedAt"> {
@@ -79,6 +79,7 @@ function operationsFormFrom(value?: EgressOperationsConfigDTO): Omit<EgressOpera
     probeIntervalSeconds: value.probeIntervalSeconds,
     autoAssignEnabled: value.autoAssignEnabled,
     autoBalanceEnabled: value.autoBalanceEnabled,
+    autoCleanupUnavailableEnabled: value.autoCleanupUnavailableEnabled,
     assignmentIntervalSeconds: value.assignmentIntervalSeconds,
     fallbacks: {
       grok_build: { ...defaults.grok_build, ...value.fallbacks.grok_build },
@@ -190,6 +191,9 @@ export function EgressAutomation({ scopeLabel }: { scopeLabel: (scope: EgressSco
             </AutomationRow>
             <AutomationRow controlId="egress-auto-balance" label={t("settings.egress.autoBalance")} description={t("settings.egress.autoBalanceHelp")}>
               <div className="flex h-8 items-center"><Switch id="egress-auto-balance" checked={operationsForm.autoBalanceEnabled} onCheckedChange={(autoBalanceEnabled) => setOperationsDraft({ ...operationsForm, autoBalanceEnabled })} /></div>
+            </AutomationRow>
+            <AutomationRow controlId="egress-auto-cleanup" label={t("settings.egress.autoCleanupUnavailable")} description={t("settings.egress.autoCleanupUnavailableHelp")}>
+              <div className="flex h-8 items-center"><Switch id="egress-auto-cleanup" checked={operationsForm.autoCleanupUnavailableEnabled} onCheckedChange={(autoCleanupUnavailableEnabled) => setOperationsDraft({ ...operationsForm, autoCleanupUnavailableEnabled })} /></div>
             </AutomationRow>
             <div className="pt-4">
               <div className="flex items-center gap-1.5 px-0.5">
