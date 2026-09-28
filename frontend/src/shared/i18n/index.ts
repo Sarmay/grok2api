@@ -2302,6 +2302,7 @@ Object.assign(resources["zh-CN"].translation.accounts as unknown as Record<strin
   egressConfiguration: "代理配置", egressConfigurationTitle: "配置 {{count}} 个账号的代理", egressConfigurationDescription: "选择绑定或解绑所选账号的固定出口代理。",
   bindEgress: "绑定代理", unbindEgress: "解绑代理", unbindEgressDescription: "移除所选账号的固定代理绑定；账号随后按当前出口策略重新参与调度。",
   bindEgressNode: "代理节点", bindEgressEmpty: "请选择代理节点", bindEgressNoNodes: "当前账号池没有可绑定的代理节点", egressBound: "代理已绑定", egressUnbound: "代理已解绑", egressFilter: "代理绑定",
+  unbindAllManual: "解绑全部手动代理", unbindAllManualTitle: "解绑当前账号池的全部手动代理？", unbindAllManualDescription: "将移除当前账号池中所有手动绑定的出口代理。自动绑定保持不变。解绑后的账号按当前出口策略重新参与调度。此操作无法撤销。", unbindAllManualConfirm: "解绑全部手动代理", unbindAllManualComplete: "已解绑 {{count}} 个手动绑定",
   egressNodeGroup: "代理出口", egressNodeGroupEmpty: "当前账号池没有匹配的代理出口", egressSourceGroup: "代理来源", egressSourceGroupEmpty: "当前账号池没有匹配的代理来源", egressFilterOptionsSearch: "搜索代理出口或来源", egressFilterOptionsLoadMore: "加载更多代理出口", egressFilterSourcesLoadMore: "加载更多代理来源", egressFilterOptionsLoadFailed: "代理筛选选项加载失败",
 });
 
@@ -2318,6 +2319,7 @@ Object.assign(resources.en.translation.accounts as unknown as Record<string, str
   egressConfiguration: "Proxy configuration", egressConfigurationTitle: "Configure proxy for {{count}} accounts", egressConfigurationDescription: "Choose whether to bind or unbind a fixed egress proxy for the selected accounts.",
   bindEgress: "Bind proxy", unbindEgress: "Unbind proxy", unbindEgressDescription: "Remove fixed proxy bindings from the selected accounts. They will return to the current egress routing policy.",
   bindEgressNode: "Proxy node", bindEgressEmpty: "Select a proxy node", bindEgressNoNodes: "No compatible proxy nodes are available for this account pool", egressBound: "Proxy bound", egressUnbound: "Proxy unbound", egressFilter: "Proxy binding",
+  unbindAllManual: "Unbind all manual proxies", unbindAllManualTitle: "Unbind every manual proxy in this account pool?", unbindAllManualDescription: "This removes every manually bound egress proxy in the current account pool. Automatic bindings stay in place. Unbound accounts return to the current egress routing policy. This cannot be undone.", unbindAllManualConfirm: "Unbind manual proxies", unbindAllManualComplete: "Unbound {{count}} manual bindings",
   egressNodeGroup: "Proxy egress", egressNodeGroupEmpty: "No matching proxy egress for this account pool", egressSourceGroup: "Proxy source", egressSourceGroupEmpty: "No matching proxy source for this account pool", egressFilterOptionsSearch: "Search proxy egress or source", egressFilterOptionsLoadMore: "Load more proxy egress", egressFilterSourcesLoadMore: "Load more proxy sources", egressFilterOptionsLoadFailed: "Failed to load proxy filter options",
 });
 

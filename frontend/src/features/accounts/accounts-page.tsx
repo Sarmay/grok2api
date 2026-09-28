@@ -92,7 +92,7 @@ import { AccountQuota, ConsoleQuota, WebQuota } from "@/features/accounts/accoun
 import { AccountNameCell } from "@/features/accounts/account-name-cell";
 import { WebAccountScriptsDialog } from "@/features/accounts/web-account-scripts";
 import { WebAccountSettingsDialogs, WebAccountSettingsMenu, type WebAccountConfirmationTarget } from "@/features/accounts/web-account-settings";
-import { assignEgressAccounts, listAllEgressNodes, listEgressNodes, listEgressSources, unassignEgressAccounts, type EgressScope } from "@/features/settings/settings-api";
+import { assignEgressAccounts, listAllEgressNodes, listEgressNodes, listEgressSources, unassignEgressAccounts, unassignManualEgressAccounts, type EgressScope } from "@/features/settings/settings-api";
 
 function isAbortError(error: unknown): boolean {
   return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
@@ -149,6 +149,7 @@ export function AccountsPage() {
   const [batchQuotaTaskOpen, setBatchQuotaTaskOpen] = useState(false);
   const [batchQuotaTask, setBatchQuotaTask] = useState<BuildQuotaTask>("sync");
   const [egressConfigurationOpen, setEgressConfigurationOpen] = useState(false);
+  const [unbindManualOpen, setUnbindManualOpen] = useState(false);
   const [egressConfigurationTask, setEgressConfigurationTask] = useState<EgressConfigurationTask>("bind");
   const [egressNodeID, setEgressNodeID] = useState("");
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -912,6 +913,16 @@ export function AccountsPage() {
     },
     onError: showError,
   });
+  const unbindManualMutation = useMutation({
+    mutationFn: () => unassignManualEgressAccounts(provider),
+    onSuccess: (result) => {
+      setUnbindManualOpen(false);
+      invalidateAccountData();
+      void queryClient.invalidateQueries({ queryKey: ["egress-nodes"] });
+      toast.success(t("accounts.unbindAllManualComplete", { count: result.assigned }));
+    },
+    onError: showError,
+  });
 
   const resetCleanupState = () => {
     setCleanupStatuses(new Set());
@@ -1299,6 +1310,7 @@ export function AccountsPage() {
     || batchDeleteMutation.isPending
     || bindEgressMutation.isPending
     || unbindEgressMutation.isPending
+    || unbindManualMutation.isPending
     || cleanupMutation.isPending
     || webConfirmationMutation.isPending
     || webAccountScriptsMutation.isPending;
@@ -1482,6 +1494,7 @@ export function AccountsPage() {
                 {hasProviderAccounts && provider === "grok_build" ? <Button variant="secondary" size="sm" disabled={bulkTaskPending} onClick={() => openDetectDialog("all")}>{t("accountCredential.detectAction")}</Button> : null}
                 {hasProviderAccounts ? <Button variant="secondary" size="sm" disabled={bulkTaskPending} onClick={() => { setAllQuotaTask("sync"); setSyncAllOpen(true); }}>{t("accountCredential.quotaSyncAction")}</Button> : null}
                 {hasProviderAccounts && provider === "grok_build" ? <Button variant="secondary" size="sm" disabled={bulkTaskPending} onClick={() => setRenewAllOpen(true)}>{t("accountCredential.refreshAction")}</Button> : null}
+                {hasProviderAccounts ? <Button variant="secondary" size="sm" disabled={bulkTaskPending} onClick={() => setUnbindManualOpen(true)}>{t("accounts.unbindAllManual")}</Button> : null}
                 {hasProviderAccounts ? <Button variant="secondary" size="sm" className="bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive" disabled={bulkTaskPending} onClick={() => { resetCleanupState(); setCleanupOpen(true); }}><Trash2 />{t("accounts.cleanupAction")}</Button> : null}
               </div>
             )}
@@ -2124,6 +2137,24 @@ export function AccountsPage() {
             }}>
               {batchBillingMutation.isPending || batchQuotaResetMutation.isPending ? <Spinner /> : null}
               {t("accountQuotaTask.execute")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={unbindManualOpen} onOpenChange={(open) => { if (!unbindManualMutation.isPending) setUnbindManualOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("accounts.unbindAllManualTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("accounts.unbindAllManualDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unbindManualMutation.isPending}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unbindManualMutation.isPending}
+              onClick={(event) => { event.preventDefault(); unbindManualMutation.mutate(); }}
+            >
+              {unbindManualMutation.isPending ? <Spinner /> : null}{t("accounts.unbindAllManualConfirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

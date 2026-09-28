@@ -517,3 +517,7 @@ export function assignEgressAccounts(nodeID: string, provider: "grok_build" | "g
 export function unassignEgressAccounts(provider: "grok_build" | "grok_web" | "grok_console", ids: string[]): Promise<{ assigned: number }> {
   return apiRequest("/api/admin/v1/egress-nodes/accounts", { method: "DELETE", body: { provider, ids } }, createObjectDecoder<{ assigned: number }>("egress account assignment", { assigned: isNumber }));
 }
+
+export function unassignManualEgressAccounts(provider: "grok_build" | "grok_web" | "grok_console"): Promise<{ assigned: number }> {
+  return apiRequest("/api/admin/v1/egress-nodes/accounts/unassign-manual", { method: "POST", body: { provider } }, createObjectDecoder<{ assigned: number }>("egress account assignment", { assigned: isNumber }));
+}

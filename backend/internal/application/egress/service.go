@@ -1064,6 +1064,32 @@ func (s *Service) UnassignAccounts(ctx context.Context, provider accountdomain.P
 	return AssignmentResult{Assigned: int(updated)}, nil
 }
 
+// manualEgressCleaner is optional so account repositories that only satisfy the
+// narrow binding interface do not have to implement a pool-wide clear.
+type manualEgressCleaner interface {
+	ClearManualEgressBindings(context.Context, accountdomain.Provider) (int64, error)
+}
+
+// UnassignManualAccounts clears every manual egress binding in one provider pool.
+// Automatic bindings are left unchanged.
+func (s *Service) UnassignManualAccounts(ctx context.Context, provider accountdomain.Provider) (AssignmentResult, error) {
+	if s.accounts == nil {
+		return AssignmentResult{}, errors.New("账号出口绑定不可用")
+	}
+	if !provider.IsValid() {
+		return AssignmentResult{}, fmt.Errorf("%w: 账号出口解绑参数无效", ErrInvalidInput)
+	}
+	cleaner, ok := s.accounts.(manualEgressCleaner)
+	if !ok {
+		return AssignmentResult{}, errors.New("账号出口绑定不可用")
+	}
+	updated, err := cleaner.ClearManualEgressBindings(ctx, provider)
+	if err != nil {
+		return AssignmentResult{}, err
+	}
+	return AssignmentResult{Assigned: int(updated)}, nil
+}
+
 func scopeSupportsProvider(scope domain.Scope, provider accountdomain.Provider) bool {
 	switch provider {
 	case accountdomain.ProviderBuild:

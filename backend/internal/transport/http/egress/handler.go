@@ -78,6 +78,7 @@ func (h *Handler) Register(router *gin.RouterGroup) {
 	router.POST("/egress-quality-guard/nodes/:id/test", h.testQualityGuardNode)
 	router.POST("/egress-nodes/:id/accounts", h.assignAccounts)
 	router.DELETE("/egress-nodes/accounts", h.unassignAccounts)
+	router.POST("/egress-nodes/accounts/unassign-manual", h.unassignManualAccounts)
 	router.PUT("/egress-nodes/:id", h.update)
 	router.POST("/egress-nodes/:id/refresh-clearance", h.refreshClearance)
 	router.DELETE("/egress-nodes/:id", h.delete)
@@ -867,6 +868,22 @@ func (h *Handler) unassignAccounts(c *gin.Context) {
 		return
 	}
 	result, err := h.service.UnassignAccounts(c.Request.Context(), accountdomain.Provider(request.Provider), ids)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"assigned": result.Assigned})
+}
+
+func (h *Handler) unassignManualAccounts(c *gin.Context) {
+	var request struct {
+		Provider string `json:"provider"`
+	}
+	if c.ShouldBindJSON(&request) != nil {
+		response.Error(c, http.StatusBadRequest, "invalidRequest", "请求参数无效")
+		return
+	}
+	result, err := h.service.UnassignManualAccounts(c.Request.Context(), accountdomain.Provider(request.Provider))
 	if err != nil {
 		h.writeError(c, err)
 		return

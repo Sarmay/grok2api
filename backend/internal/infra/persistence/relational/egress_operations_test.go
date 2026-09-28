@@ -1208,6 +1208,59 @@ func (stub egressProbeStub) ProbeEgressNode(context.Context, egress.Node) (egres
 	return stub.result, stub.err
 }
 
+func TestUnassignManualAccountsClearsOnlyManualBindingsInOnePool(t *testing.T) {
+	ctx := context.Background()
+	database := openTestDatabase(t)
+	accounts := NewAccountRepository(database)
+	nodes := NewEgressRepository(database)
+	cipher := egressOperationsCipher(t)
+	node := createHealthyEgressNode(t, ctx, nodes, cipher, "manual-clear", 0)
+	manualAccount := createEgressOperationsAccount(t, ctx, accounts, "manual-account")
+	autoAccount := createEgressOperationsAccount(t, ctx, accounts, "auto-account")
+	otherPool := createEgressOperationsProviderAccount(t, ctx, accounts, account.ProviderWeb, "web-manual")
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{manualAccount.ID}, &node.ID, account.EgressAssignmentManual, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{autoAccount.ID}, &node.ID, account.EgressAssignmentAuto, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderWeb, []uint64{otherPool.ID}, &node.ID, account.EgressAssignmentManual, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	service := egressapp.NewService(nodes, cipher, "test-browser", accounts)
+	if _, err := service.UnassignManualAccounts(ctx, account.Provider("")); err == nil {
+		t.Fatal("invalid provider was accepted")
+	}
+	result, err := service.UnassignManualAccounts(ctx, account.ProviderBuild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Assigned != 1 {
+		t.Fatalf("cleared = %d", result.Assigned)
+	}
+	cleared, err := accounts.Get(ctx, manualAccount.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.EgressNodeID != 0 || cleared.EgressAssignmentMode != "" {
+		t.Fatalf("manual binding remains: %#v", cleared)
+	}
+	kept, err := accounts.Get(ctx, autoAccount.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.EgressNodeID != node.ID || kept.EgressAssignmentMode != account.EgressAssignmentAuto {
+		t.Fatalf("automatic binding changed: %#v", kept)
+	}
+	other, err := accounts.Get(ctx, otherPool.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.EgressNodeID != node.ID || other.EgressAssignmentMode != account.EgressAssignmentManual {
+		t.Fatalf("other pool binding changed: %#v", other)
+	}
+}
+
 func egressOperationsCipher(t *testing.T) *security.Cipher {
 	t.Helper()
 	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")

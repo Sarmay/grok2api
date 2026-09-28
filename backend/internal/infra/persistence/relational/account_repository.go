@@ -1700,6 +1700,51 @@ func (r *AccountRepository) UpdateEgressBindings(ctx context.Context, providerVa
 	return updated, mapError(err)
 }
 
+// ClearManualEgressBindings removes every manual egress binding for one provider.
+// Automatic bindings stay in place. Build quality-lease blocks for the cleared
+// accounts are removed in the same transaction.
+func (r *AccountRepository) ClearManualEgressBindings(ctx context.Context, providerValue account.Provider) (int64, error) {
+	var updated int64
+	var clearedLeaseBlocks int64
+	err := r.db.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ids []uint64
+		if err := tx.Model(&accountModel{}).
+			Where("provider = ? AND egress_assignment_mode = ?", providerValue, account.EgressAssignmentManual).
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		result := tx.Model(&accountModel{}).Where("id IN ?", ids).Updates(map[string]any{
+			"egress_node_id": nil, "egress_assignment_mode": "", "egress_assigned_at": nil,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		updated = result.RowsAffected
+		if providerValue != account.ProviderBuild {
+			return nil
+		}
+		deleted := tx.Where("account_id IN ?", ids).Delete(&accountEgressLeaseBlockModel{})
+		if deleted.Error != nil {
+			return deleted.Error
+		}
+		clearedLeaseBlocks = deleted.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, mapError(err)
+	}
+	if updated > 0 {
+		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountStateChanged, Provider: providerValue})
+	}
+	if clearedLeaseBlocks > 0 {
+		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountEgressLeaseChanged, Provider: providerValue})
+	}
+	return updated, nil
+}
+
 // ListEgressAssignments returns all accounts for one provider with their
 // binding metadata. It deliberately includes disabled accounts so capacity
 // reporting reflects every account that reserves a proxy slot.
