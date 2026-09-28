@@ -43,7 +43,7 @@ export type EgressNodeDTO = {
 	id: string; name: string; scope: EgressScope; enabled: boolean;
 	proxyConfigured: boolean; proxyDisplay?: string; proxyFingerprint?: string; userAgent: string; cookieConfigured: boolean;
 	accountBoundProxy: boolean; proxyPool: boolean; proxyProfileId?: string; proxyProfileName?: string;
-	sourceId?: string; accountCapacity: number; assignedAccountCount: number;
+	sourceId?: string; location?: string; accountCapacity: number; assignedAccountCount: number;
 	manualAssignedAccountCount: number; autoAssignedAccountCount: number;
 	health: number; failureCount: number; cooldownUntil?: string; lastError?: string;
 	probeStatus: "unknown" | "healthy" | "unhealthy"; lastProbedAt?: string; probeLatencyMs: number; exitIp?: string; probeError?: string;
@@ -82,7 +82,7 @@ export type EgressNodeListDTO = {
 };
 export type EgressSourceDTO = {
   id: string; name: string; scope: EgressScope; enabled: boolean; urlConfigured: boolean; proxyConfigured: boolean;
-  refreshIntervalSeconds: number; defaultAccountCapacity: number;
+  refreshIntervalSeconds: number; defaultAccountCapacity: number; excludeHongKong: boolean;
   lastSyncedAt?: string; nextSyncAt?: string; lastSyncImported: number; lastSyncError?: string;
 };
 export type EgressSourceListDTO = {
@@ -94,7 +94,7 @@ export type EgressSourceListDTO = {
 export type EgressSourceInput = {
   name: string; scope: EgressScope; enabled: boolean; url?: string; clearUrl?: boolean;
   proxyURL?: string; clearProxyURL?: boolean;
-  refreshIntervalSeconds: number; defaultAccountCapacity: number;
+  refreshIntervalSeconds: number; defaultAccountCapacity: number; excludeHongKong: boolean;
 };
 export type EgressOperationsConfigDTO = {
   probeProvider: "ipinfo" | "cloudflare"; probeIntervalSeconds: number; autoAssignEnabled: boolean; autoBalanceEnabled: boolean;
@@ -218,7 +218,7 @@ type EgressNodeWireDTO = Omit<EgressNodeDTO, "ipv4Probe" | "ipv6Probe" | "manual
   manualAssignedAccountCount?: number;
   autoAssignedAccountCount?: number;
 };
-type EgressSourceWireDTO = Omit<EgressSourceDTO, "proxyConfigured"> & { proxyConfigured?: boolean };
+type EgressSourceWireDTO = Omit<EgressSourceDTO, "proxyConfigured" | "excludeHongKong"> & { proxyConfigured?: boolean; excludeHongKong?: boolean };
 type EgressOperationsConfigWireDTO = Omit<EgressOperationsConfigDTO, "probeProvider" | "autoCleanupUnavailableEnabled"> & {
   probeProvider?: "ipinfo" | "cloudflare";
   autoCleanupUnavailableEnabled?: boolean;
@@ -227,6 +227,7 @@ type EgressProbeResultWireDTO = Omit<EgressProbeResultDTO, "ipv4" | "ipv6"> & { 
 const unknownEgressIPProbe = (): EgressIPProbeDTO => ({ status: "unknown", latencyMs: 0 });
 const withEgressNodeProbeDefaults = (value: EgressNodeWireDTO): EgressNodeDTO => ({
   ...value,
+  location: value.location ?? "",
   ipv4Probe: value.ipv4Probe ?? unknownEgressIPProbe(),
   ipv6Probe: value.ipv6Probe ?? unknownEgressIPProbe(),
   manualAssignedAccountCount: value.manualAssignedAccountCount ?? 0,
@@ -235,11 +236,12 @@ const withEgressNodeProbeDefaults = (value: EgressNodeWireDTO): EgressNodeDTO =>
 const withEgressSourceDefaults = (value: EgressSourceWireDTO): EgressSourceDTO => ({
   ...value,
   proxyConfigured: value.proxyConfigured ?? false,
+  excludeHongKong: value.excludeHongKong ?? false,
 });
 const egressNodeValidator = hasShape({
   id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
   proxyConfigured: isBoolean, proxyDisplay: isOptional(isString), proxyFingerprint: isOptional(isString), userAgent: isString, cookieConfigured: isBoolean, accountBoundProxy: isBoolean, proxyPool: isBoolean, health: isNumber, failureCount: isNumber,
-  sourceId: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
+  sourceId: isOptional(isString), location: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
   manualAssignedAccountCount: isOptional(isNumber), autoAssignedAccountCount: isOptional(isNumber),
   probeStatus: isOneOf("unknown", "healthy", "unhealthy"), lastProbedAt: isOptional(isString), probeLatencyMs: isNumber, exitIp: isOptional(isString), probeError: isOptional(isString), probeProvider: isOptional(isOneOf("ipinfo", "cloudflare")),
   ipv4Probe: isOptional(egressIPProbeValidator), ipv6Probe: isOptional(egressIPProbeValidator),
@@ -248,7 +250,7 @@ const egressNodeValidator = hasShape({
 const decodeEgressNodeRaw = createObjectDecoder<EgressNodeWireDTO>("egress node", {
   id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean,
   proxyConfigured: isBoolean, proxyDisplay: isOptional(isString), proxyFingerprint: isOptional(isString), userAgent: isString, cookieConfigured: isBoolean, accountBoundProxy: isBoolean, proxyPool: isBoolean, health: isNumber, failureCount: isNumber,
-  sourceId: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
+  sourceId: isOptional(isString), location: isOptional(isString), proxyProfileId: isOptional(isString), proxyProfileName: isOptional(isString), accountCapacity: isNumber, assignedAccountCount: isNumber,
   manualAssignedAccountCount: isOptional(isNumber), autoAssignedAccountCount: isOptional(isNumber),
   probeStatus: isOneOf("unknown", "healthy", "unhealthy"), lastProbedAt: isOptional(isString), probeLatencyMs: isNumber, exitIp: isOptional(isString), probeError: isOptional(isString), probeProvider: isOptional(isOneOf("ipinfo", "cloudflare")),
   ipv4Probe: isOptional(egressIPProbeValidator), ipv6Probe: isOptional(egressIPProbeValidator),
@@ -294,13 +296,13 @@ const decodeEgressNodeList = (value: unknown): EgressNodeListDTO => {
 const egressSourceValidator = hasShape({
   id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
   proxyConfigured: isOptional(isBoolean),
-  refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
+  refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, excludeHongKong: isOptional(isBoolean), lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
   lastSyncImported: isNumber, lastSyncError: isOptional(isString),
 });
 const decodeEgressSourceRaw = createObjectDecoder<EgressSourceWireDTO>("egress source", {
   id: isString, name: isString, scope: isOneOf("grok_build", "grok_web", "grok_console", "grok_web_asset", "grok_console_asset"), enabled: isBoolean, urlConfigured: isBoolean,
   proxyConfigured: isOptional(isBoolean),
-  refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
+  refreshIntervalSeconds: isNumber, defaultAccountCapacity: isNumber, excludeHongKong: isOptional(isBoolean), lastSyncedAt: isOptional(isString), nextSyncAt: isOptional(isString),
   lastSyncImported: isNumber, lastSyncError: isOptional(isString),
 });
 const decodeEgressSource = (value: unknown) => withEgressSourceDefaults(decodeEgressSourceRaw(value));
@@ -361,6 +363,7 @@ type ListEgressNodesInput = {
   enabled?: string;
   probe?: string;
   assignment?: string;
+  location?: string;
   sortBy?: string;
   sortOrder?: SortOrder;
 };
@@ -372,6 +375,7 @@ export function listEgressNodes(input: ListEgressNodesInput = {}): Promise<Egres
   if (input.enabled) query.set("enabled", input.enabled);
   if (input.probe) query.set("probe", input.probe);
   if (input.assignment) query.set("assignment", input.assignment);
+  if (input.location) query.set("location", input.location);
   if (input.sortBy && input.sortOrder) {
     query.set("sortBy", input.sortBy);
     query.set("sortOrder", input.sortOrder);
@@ -494,7 +498,7 @@ export function syncEgressSource(id: string): Promise<EgressImportResultDTO> {
   return apiRequest(`/api/admin/v1/egress-sources/${id}/sync`, { method: "POST" }, decodeEgressImportResult);
 }
 
-export function importEgressText(input: { name: string; scope: EgressScope; accountCapacity: number; content: string }): Promise<EgressImportResultDTO> {
+export function importEgressText(input: { name: string; scope: EgressScope; accountCapacity: number; content: string; excludeHongKong?: boolean }): Promise<EgressImportResultDTO> {
   return apiRequest("/api/admin/v1/egress-imports", { method: "POST", body: input }, decodeEgressImportResult);
 }
 

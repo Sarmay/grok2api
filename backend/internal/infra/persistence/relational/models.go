@@ -501,6 +501,7 @@ type egressSubscriptionSourceModel struct {
 	EncryptedProxyURL      string `gorm:"type:text;not null;default:'';check:chk_egress_subscription_sources_proxy_url,length(encrypted_proxy_url) <= 65536"`
 	RefreshIntervalSeconds int    `gorm:"not null;default:900;check:chk_egress_subscription_sources_refresh,refresh_interval_seconds BETWEEN 60 AND 86400"`
 	DefaultAccountCapacity int    `gorm:"not null;default:0;check:chk_egress_subscription_sources_capacity,default_account_capacity BETWEEN 0 AND 100000"`
+	ExcludeHongKong        bool   `gorm:"not null;default:false"`
 	LastSyncedAt           *time.Time
 	NextSyncAt             *time.Time `gorm:"index:idx_egress_subscription_sources_due"`
 	LastSyncImported       int        `gorm:"not null;default:0;check:chk_egress_subscription_sources_imported,last_sync_imported >= 0"`
@@ -529,6 +530,7 @@ type egressNodeModel struct {
 	ProxyPool                   bool    `gorm:"not null;default:false"`
 	SourceID                    *uint64 `gorm:"uniqueIndex:uidx_egress_nodes_source_key,priority:1;index:idx_egress_nodes_source;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
 	SourceKey                   string  `gorm:"size:64;not null;default:'';uniqueIndex:uidx_egress_nodes_source_key,priority:2;check:chk_egress_nodes_source_key,length(source_key) <= 64"`
+	Location                    string  `gorm:"size:8;not null;default:'';check:chk_egress_nodes_location,length(location) <= 8"`
 	AccountCapacity             int     `gorm:"not null;default:0;check:chk_egress_nodes_capacity,account_capacity BETWEEN 0 AND 100000"`
 	ProxyProfileID              *uint64 `gorm:"index:idx_egress_nodes_proxy_profile;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
 	EncryptedProxyURL           string  `gorm:"type:text;not null;default:'';check:chk_egress_nodes_proxy_url,length(encrypted_proxy_url) <= 65536"`

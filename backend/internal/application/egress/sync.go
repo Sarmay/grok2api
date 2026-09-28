@@ -44,6 +44,8 @@ func (s *Service) syncSource(ctx context.Context, operations OperationsRepositor
 		recordFailure()
 		return ImportResult{}, ErrSubscriptionSync
 	}
+	entries, excluded := selectSubscriptionEntries(entries, source.ExcludeHongKong)
+	skipped += excluded
 	userAgent := ""
 	if source.Scope != domain.ScopeBuild {
 		s.mu.RLock()
@@ -59,7 +61,7 @@ func (s *Service) syncSource(ctx context.Context, operations OperationsRepositor
 		}
 		nodes = append(nodes, domain.Node{
 			Name: sourceNodeName(source.Name, index), Scope: source.Scope, Enabled: true,
-			SourceID: source.ID, SourceKey: entry.Key, AccountCapacity: source.DefaultAccountCapacity,
+			SourceID: source.ID, SourceKey: entry.Key, Location: entry.Location, AccountCapacity: source.DefaultAccountCapacity,
 			EncryptedProxyURL: encryptedProxy, UserAgent: userAgent, Health: 1, ProbeStatus: domain.ProbeStatusUnknown,
 		})
 	}

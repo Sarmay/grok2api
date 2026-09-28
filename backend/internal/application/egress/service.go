@@ -107,6 +107,7 @@ type ListFilter struct {
 	Enabled     string
 	ProbeStatus string
 	Assignment  string
+	Location    string
 	Sort        repository.SortQuery
 }
 
@@ -411,7 +412,8 @@ func (s *Service) List(ctx context.Context, page, pageSize int, search string, f
 	page, pageSize = repository.NormalizePage(page, pageSize, repository.DefaultPageSize)
 	if !validListScope(filter.Scope) || !validListValue(filter.Enabled, "enabled", "disabled") ||
 		!validListValue(filter.ProbeStatus, string(domain.ProbeStatusHealthy), string(domain.ProbeStatusUnhealthy), string(domain.ProbeStatusUnknown)) ||
-		!validListValue(filter.Assignment, "bound", "unbound") {
+		!validListValue(filter.Assignment, "bound", "unbound") ||
+		!validListValue(filter.Location, "HK", "not_hk") {
 		return nil, 0, ErrInvalidFilter
 	}
 	if !repository.IsValidSort(filter.Sort, "name", "scope", "proxy", "clearance", "health") {
@@ -425,7 +427,7 @@ func (s *Service) List(ctx context.Context, page, pageSize int, search string, f
 	values, total, err := s.repository.ListEgressNodePage(ctx, repository.EgressNodeListQuery{
 		Page: repository.PageQuery{Offset: (page - 1) * pageSize, Limit: pageSize, Search: strings.TrimSpace(search), Sort: filter.Sort},
 		Filter: repository.EgressNodeListFilter{
-			Scope: filter.Scope, Enabled: enabled, ProbeStatus: domain.ProbeStatus(filter.ProbeStatus), Assignment: filter.Assignment,
+			Scope: filter.Scope, Enabled: enabled, ProbeStatus: domain.ProbeStatus(filter.ProbeStatus), Assignment: filter.Assignment, Location: filter.Location,
 		},
 	})
 	if err != nil {
@@ -1186,6 +1188,7 @@ func (s *Service) applyInput(value domain.Node, input Input, create bool) (domai
 	if name == "" || len(name) > 160 {
 		return domain.Node{}, fmt.Errorf("%w: 名称必须在 1 到 160 个字符之间", ErrInvalidInput)
 	}
+	previousName := value.Name
 	if !validListScope(input.Scope) || input.Scope == "" {
 		return domain.Node{}, fmt.Errorf("%w: scope 必须是 grok_build、grok_web、grok_console、grok_web_asset 或 grok_console_asset", ErrInvalidInput)
 	}
@@ -1218,6 +1221,8 @@ func (s *Service) applyInput(value domain.Node, input Input, create bool) (domai
 	} else if input.ClearProxyURL || input.ProxyURL != nil {
 		value.ProxyProfileID = 0
 	}
+	proxyChanged := input.ClearProxyURL || input.ProxyURL != nil
+	var normalizedProxy string
 	if input.ClearProxyURL {
 		value.EncryptedProxyURL = ""
 		value.ProxyPool = false
@@ -1226,6 +1231,7 @@ func (s *Service) applyInput(value domain.Node, input Input, create bool) (domai
 		if err != nil {
 			return domain.Node{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 		}
+		normalizedProxy = normalized
 		if normalized != "" {
 			value.EncryptedProxyURL, err = s.cipher.Encrypt(normalized)
 			if err != nil {
@@ -1233,6 +1239,11 @@ func (s *Service) applyInput(value domain.Node, input Input, create bool) (domai
 			}
 		}
 	}
+	host := proxyServerHost(normalizedProxy)
+	if host == "" && previousName != name && !input.ClearProxyURL {
+		host = s.storedProxyHost(value.EncryptedProxyURL)
+	}
+	value.Location = resolveNodeLocation(previousName, name, value.Location, host, proxyChanged)
 	if value.ProxyPool && strings.TrimSpace(value.EncryptedProxyURL) == "" {
 		return domain.Node{}, fmt.Errorf("%w: 代理池模式需要配置代理地址", ErrInvalidInput)
 	}
@@ -1292,6 +1303,7 @@ func (s *Service) publicNode(value domain.Node) domain.PublicNode {
 		UserAgent: userAgent, CookieConfigured: value.EncryptedCloudflareCookie != "",
 		ProxyPool:         proxyPool,
 		SourceID:          value.SourceID,
+		Location:          value.Location,
 		AccountCapacity:   value.AccountCapacity,
 		ProxyProfileID:    value.ProxyProfileID,
 		ProxyProfileName:  value.ProxyProfileName,
@@ -1301,8 +1313,23 @@ func (s *Service) publicNode(value domain.Node) domain.PublicNode {
 		ProbeProvider: value.ProbeProvider,
 		IPv4Probe:     value.IPv4Probe, IPv6Probe: value.IPv6Probe,
 		AssignedAccountCount: value.AssignedAccountCount, ManualAssignedAccountCount: value.ManualAssignedAccountCount, AutoAssignedAccountCount: value.AutoAssignedAccountCount,
-		CreatedAt:            value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
+}
+
+func (s *Service) storedProxyHost(encrypted string) string {
+	if s == nil || s.cipher == nil || strings.TrimSpace(encrypted) == "" {
+		return ""
+	}
+	proxyURL, err := s.cipher.Decrypt(encrypted)
+	if err != nil {
+		return ""
+	}
+	normalized, err := NormalizeProxyURL(proxyURL)
+	if err != nil {
+		return ""
+	}
+	return proxyServerHost(normalized)
 }
 
 func (s *Service) proxyMetadata(encrypted string) (string, string, bool) {

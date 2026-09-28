@@ -692,33 +692,34 @@ type nodeRequest struct {
 }
 
 type nodeResponse struct {
-	ID                   uint64              `json:"id,string"`
-	Name                 string              `json:"name"`
-	Scope                string              `json:"scope"`
-	Enabled              bool                `json:"enabled"`
-	ProxyConfigured      bool                `json:"proxyConfigured"`
-	ProxyDisplay         string              `json:"proxyDisplay,omitempty"`
-	ProxyFingerprint     string              `json:"proxyFingerprint,omitempty"`
-	ProxyPool            bool                `json:"proxyPool"`
-	SourceID             uint64              `json:"sourceId,omitempty,string"`
-	ProxyProfileID       uint64              `json:"proxyProfileId,omitempty,string"`
-	ProxyProfileName     string              `json:"proxyProfileName,omitempty"`
-	AccountCapacity      int                 `json:"accountCapacity"`
-	UserAgent            string              `json:"userAgent"`
-	CookieConfigured     bool                `json:"cookieConfigured"`
-	AccountBoundProxy    bool                `json:"accountBoundProxy"`
-	Health               float64             `json:"health"`
-	FailureCount         int                 `json:"failureCount"`
-	CooldownUntil        *time.Time          `json:"cooldownUntil,omitempty"`
-	LastError            string              `json:"lastError,omitempty"`
-	ProbeStatus          string              `json:"probeStatus"`
-	LastProbedAt         *time.Time          `json:"lastProbedAt,omitempty"`
-	ProbeLatencyMS       int                 `json:"probeLatencyMs"`
-	ExitIP               string              `json:"exitIp,omitempty"`
-	ProbeError           string              `json:"probeError,omitempty"`
-	ProbeProvider        string              `json:"probeProvider,omitempty"`
-	IPv4Probe            probeFamilyResponse `json:"ipv4Probe"`
-	IPv6Probe            probeFamilyResponse `json:"ipv6Probe"`
+	ID                         uint64              `json:"id,string"`
+	Name                       string              `json:"name"`
+	Scope                      string              `json:"scope"`
+	Enabled                    bool                `json:"enabled"`
+	ProxyConfigured            bool                `json:"proxyConfigured"`
+	ProxyDisplay               string              `json:"proxyDisplay,omitempty"`
+	ProxyFingerprint           string              `json:"proxyFingerprint,omitempty"`
+	ProxyPool                  bool                `json:"proxyPool"`
+	SourceID                   uint64              `json:"sourceId,omitempty,string"`
+	Location                   string              `json:"location,omitempty"`
+	ProxyProfileID             uint64              `json:"proxyProfileId,omitempty,string"`
+	ProxyProfileName           string              `json:"proxyProfileName,omitempty"`
+	AccountCapacity            int                 `json:"accountCapacity"`
+	UserAgent                  string              `json:"userAgent"`
+	CookieConfigured           bool                `json:"cookieConfigured"`
+	AccountBoundProxy          bool                `json:"accountBoundProxy"`
+	Health                     float64             `json:"health"`
+	FailureCount               int                 `json:"failureCount"`
+	CooldownUntil              *time.Time          `json:"cooldownUntil,omitempty"`
+	LastError                  string              `json:"lastError,omitempty"`
+	ProbeStatus                string              `json:"probeStatus"`
+	LastProbedAt               *time.Time          `json:"lastProbedAt,omitempty"`
+	ProbeLatencyMS             int                 `json:"probeLatencyMs"`
+	ExitIP                     string              `json:"exitIp,omitempty"`
+	ProbeError                 string              `json:"probeError,omitempty"`
+	ProbeProvider              string              `json:"probeProvider,omitempty"`
+	IPv4Probe                  probeFamilyResponse `json:"ipv4Probe"`
+	IPv6Probe                  probeFamilyResponse `json:"ipv6Probe"`
 	AssignedAccountCount       int                 `json:"assignedAccountCount"`
 	ManualAssignedAccountCount int                 `json:"manualAssignedAccountCount"`
 	AutoAssignedAccountCount   int                 `json:"autoAssignedAccountCount"`
@@ -923,7 +924,7 @@ func (h *Handler) list(c *gin.Context) {
 	page, pageSize := nodePagination(c)
 	values, total, err := h.service.List(c.Request.Context(), page, pageSize, c.Query("search"), egressapp.ListFilter{
 		Scope: scope, Enabled: c.Query("enabled"), ProbeStatus: c.Query("probe"), Assignment: c.Query("assignment"),
-		Sort: sort,
+		Location: c.Query("location"), Sort: sort,
 	})
 	if h.writeListError(c, err) {
 		return
@@ -942,7 +943,7 @@ func legacyEgressListRequest(c *gin.Context) bool {
 	if _, exists := c.GetQuery("pageSize"); exists {
 		return false
 	}
-	return c.Query("search") == "" && c.Query("enabled") == "" && c.Query("probe") == "" && c.Query("assignment") == ""
+	return c.Query("search") == "" && c.Query("enabled") == "" && c.Query("probe") == "" && c.Query("assignment") == "" && c.Query("location") == ""
 }
 
 func (h *Handler) writeListError(c *gin.Context, err error) bool {
@@ -1126,7 +1127,7 @@ func newNodeResponse(value egressdomain.PublicNode) nodeResponse {
 		ProxyConfigured: value.ProxyConfigured, ProxyDisplay: value.ProxyDisplay, ProxyFingerprint: value.ProxyFingerprint,
 		ProxyPool: value.ProxyPool, UserAgent: value.UserAgent, CookieConfigured: value.CookieConfigured,
 		AccountBoundProxy: value.AccountBoundProxy,
-		SourceID:          value.SourceID, AccountCapacity: value.AccountCapacity,
+		SourceID:          value.SourceID, Location: value.Location, AccountCapacity: value.AccountCapacity,
 		ProxyProfileID: value.ProxyProfileID, ProxyProfileName: value.ProxyProfileName,
 		Health: value.Health, FailureCount: value.FailureCount, CooldownUntil: value.CooldownUntil, LastError: value.LastError,
 		ProbeStatus: string(value.ProbeStatus), LastProbedAt: value.LastProbedAt, ProbeLatencyMS: value.ProbeLatencyMS, ExitIP: value.ExitIP, ProbeError: value.ProbeError,
@@ -1220,6 +1221,7 @@ type sourceRequest struct {
 	ClearProxyURL          bool    `json:"clearProxyURL"`
 	RefreshIntervalSeconds *int    `json:"refreshIntervalSeconds"`
 	DefaultAccountCapacity *int    `json:"defaultAccountCapacity"`
+	ExcludeHongKong        bool    `json:"excludeHongKong"`
 }
 
 type sourceResponse struct {
@@ -1231,6 +1233,7 @@ type sourceResponse struct {
 	ProxyConfigured        bool       `json:"proxyConfigured"`
 	RefreshIntervalSeconds int        `json:"refreshIntervalSeconds"`
 	DefaultAccountCapacity int        `json:"defaultAccountCapacity"`
+	ExcludeHongKong        bool       `json:"excludeHongKong"`
 	LastSyncedAt           *time.Time `json:"lastSyncedAt,omitempty"`
 	NextSyncAt             *time.Time `json:"nextSyncAt,omitempty"`
 	LastSyncImported       int        `json:"lastSyncImported"`
@@ -1242,6 +1245,7 @@ type importRequest struct {
 	Scope           string `json:"scope"`
 	AccountCapacity int    `json:"accountCapacity"`
 	Content         string `json:"content"`
+	ExcludeHongKong bool   `json:"excludeHongKong"`
 }
 
 type probeBatchRequest struct {
@@ -1249,13 +1253,13 @@ type probeBatchRequest struct {
 }
 
 type operationsConfigRequest struct {
-	ProbeProvider             string                               `json:"probeProvider"`
-	ProbeIntervalSeconds      int                                  `json:"probeIntervalSeconds"`
+	ProbeProvider                 string                               `json:"probeProvider"`
+	ProbeIntervalSeconds          int                                  `json:"probeIntervalSeconds"`
 	AutoAssignEnabled             bool                                 `json:"autoAssignEnabled"`
 	AutoBalanceEnabled            bool                                 `json:"autoBalanceEnabled"`
 	AutoCleanupUnavailableEnabled bool                                 `json:"autoCleanupUnavailableEnabled"`
 	AssignmentIntervalSeconds     int                                  `json:"assignmentIntervalSeconds"`
-	Fallbacks                 map[string]operationsFallbackRequest `json:"fallbacks"`
+	Fallbacks                     map[string]operationsFallbackRequest `json:"fallbacks"`
 }
 
 type operationsFallbackRequest struct {
@@ -1264,14 +1268,14 @@ type operationsFallbackRequest struct {
 }
 
 type operationsConfigResponse struct {
-	ProbeProvider             string                                `json:"probeProvider"`
-	ProbeIntervalSeconds      int                                   `json:"probeIntervalSeconds"`
+	ProbeProvider                 string                                `json:"probeProvider"`
+	ProbeIntervalSeconds          int                                   `json:"probeIntervalSeconds"`
 	AutoAssignEnabled             bool                                  `json:"autoAssignEnabled"`
 	AutoBalanceEnabled            bool                                  `json:"autoBalanceEnabled"`
 	AutoCleanupUnavailableEnabled bool                                  `json:"autoCleanupUnavailableEnabled"`
 	AssignmentIntervalSeconds     int                                   `json:"assignmentIntervalSeconds"`
-	Fallbacks                 map[string]operationsFallbackResponse `json:"fallbacks"`
-	UpdatedAt                 time.Time                             `json:"updatedAt"`
+	Fallbacks                     map[string]operationsFallbackResponse `json:"fallbacks"`
+	UpdatedAt                     time.Time                             `json:"updatedAt"`
 }
 
 type operationsFallbackResponse struct {
@@ -1309,6 +1313,7 @@ func (value sourceRequest) input() egressapp.SubscriptionSourceInput {
 		Name: value.Name, Scope: egressdomain.Scope(value.Scope), Enabled: value.Enabled, URL: value.URL, ClearURL: value.ClearURL,
 		ProxyURL: value.ProxyURL, ClearProxyURL: value.ClearProxyURL,
 		RefreshIntervalSeconds: value.RefreshIntervalSeconds, DefaultAccountCapacity: value.DefaultAccountCapacity,
+		ExcludeHongKong: value.ExcludeHongKong,
 	}
 }
 
@@ -1317,7 +1322,8 @@ func newSourceResponse(value egressdomain.PublicSubscriptionSource) sourceRespon
 		ID: value.ID, Name: value.Name, Scope: string(value.Scope), Enabled: value.Enabled, URLConfigured: value.URLConfigured,
 		ProxyConfigured:        value.ProxyConfigured,
 		RefreshIntervalSeconds: value.RefreshIntervalSeconds, DefaultAccountCapacity: value.DefaultAccountCapacity,
-		LastSyncedAt: value.LastSyncedAt, NextSyncAt: value.NextSyncAt, LastSyncImported: value.LastSyncImported, LastSyncError: value.LastSyncError,
+		ExcludeHongKong: value.ExcludeHongKong,
+		LastSyncedAt:    value.LastSyncedAt, NextSyncAt: value.NextSyncAt, LastSyncImported: value.LastSyncImported, LastSyncError: value.LastSyncError,
 	}
 }
 
@@ -1453,6 +1459,7 @@ func (h *Handler) importText(c *gin.Context) {
 	}
 	value, err := h.service.ImportText(c.Request.Context(), egressapp.ImportInput{
 		Name: request.Name, Scope: egressdomain.Scope(request.Scope), AccountCapacity: request.AccountCapacity, Content: request.Content,
+		ExcludeHongKong: request.ExcludeHongKong,
 	})
 	if err != nil {
 		h.writeError(c, err)

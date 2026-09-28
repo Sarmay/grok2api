@@ -40,6 +40,7 @@ var blockedSubscriptionPrefixes = []netip.Prefix{
 type subscriptionEntry struct {
 	ProxyURL string
 	Key      string
+	Location string
 }
 
 func normalizeSubscriptionURL(value string) (string, error) {
@@ -384,24 +385,38 @@ func parseProxyLines(value string) ([]subscriptionEntry, int) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		normalized, err := NormalizeProxyURL(line)
-		if err != nil {
+		next, ok := acceptProxyLine(entries, seen, line, "")
+		if !ok {
 			skipped++
 			continue
 		}
-		digest := sha256.Sum256([]byte(normalized))
-		key := hex.EncodeToString(digest[:])
-		if _, exists := seen[key]; exists {
-			skipped++
-			continue
-		}
-		seen[key] = struct{}{}
-		entries = append(entries, subscriptionEntry{ProxyURL: normalized, Key: key})
+		entries = next
 		if len(entries) > maxSubscriptionEntries {
 			return nil, skipped
 		}
 	}
 	return entries, skipped
+}
+
+func acceptProxyLine(entries []subscriptionEntry, seen map[string]struct{}, raw, label string) ([]subscriptionEntry, bool) {
+	raw = strings.TrimSpace(raw)
+	if label == "" {
+		label = proxyRemark(raw)
+	}
+	normalized, err := NormalizeProxyURL(raw)
+	if err != nil || normalized == "" {
+		return entries, false
+	}
+	digest := sha256.Sum256([]byte(normalized))
+	key := hex.EncodeToString(digest[:])
+	if _, exists := seen[key]; exists {
+		return entries, false
+	}
+	seen[key] = struct{}{}
+	entries = append(entries, subscriptionEntry{
+		ProxyURL: normalized, Key: key, Location: detectProxyLocation(label, proxyServerHost(normalized)),
+	})
+	return entries, true
 }
 
 func sourceNodeName(sourceName string, index int) string {

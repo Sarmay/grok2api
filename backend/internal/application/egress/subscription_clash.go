@@ -18,6 +18,7 @@ type clashSubscription struct {
 }
 
 type clashProxy struct {
+	Name              string               `yaml:"name"`
 	Type              string               `yaml:"type"`
 	Server            string               `yaml:"server"`
 	Port              clashInteger         `yaml:"port"`
@@ -120,7 +121,8 @@ func parseClashSubscription(value string) ([]subscriptionEntry, int, bool) {
 	if len(document.Proxies) > maxSubscriptionEntries {
 		return nil, len(document.Proxies), true
 	}
-	lines := make([]string, 0, len(document.Proxies))
+	seen := make(map[string]struct{})
+	entries := make([]subscriptionEntry, 0, len(document.Proxies))
 	skipped := 0
 	for index := range document.Proxies {
 		var proxy clashProxy
@@ -133,10 +135,17 @@ func parseClashSubscription(value string) ([]subscriptionEntry, int, bool) {
 			skipped++
 			continue
 		}
-		lines = append(lines, line)
+		next, ok := acceptProxyLine(entries, seen, line, proxy.Name)
+		if !ok {
+			skipped++
+			continue
+		}
+		entries = next
+		if len(entries) > maxSubscriptionEntries {
+			return nil, skipped, true
+		}
 	}
-	entries, lineSkipped := parseProxyLines(strings.Join(lines, "\n"))
-	return entries, skipped + lineSkipped, true
+	return entries, skipped, true
 }
 
 func clashProxyURL(proxy clashProxy) (string, error) {

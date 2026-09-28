@@ -30,6 +30,7 @@ type Node struct {
 	ProxyPool                   bool
 	SourceID                    uint64
 	SourceKey                   string
+	Location                    string
 	AccountCapacity             int
 	ProxyProfileID              uint64
 	ProxyProfileName            string
@@ -59,31 +60,32 @@ type Node struct {
 }
 
 type PublicNode struct {
-	ID                   uint64
-	Name                 string
-	Scope                Scope
-	Enabled              bool
-	ProxyConfigured      bool
-	ProxyDisplay         string
-	ProxyFingerprint     string
-	ProxyPool            bool
-	SourceID             uint64
-	AccountCapacity      int
-	ProxyProfileID       uint64
-	ProxyProfileName     string
-	UserAgent            string
-	CookieConfigured     bool
-	AccountBoundProxy    bool
-	Health               float64
-	FailureCount         int
-	CooldownUntil        *time.Time
-	LastError            string
-	ProbeStatus          ProbeStatus
-	LastProbedAt         *time.Time
-	ProbeLatencyMS       int
-	ExitIP               string
-	ProbeError           string
-	ProbeProvider        ProbeProvider
+	ID                         uint64
+	Name                       string
+	Scope                      Scope
+	Enabled                    bool
+	ProxyConfigured            bool
+	ProxyDisplay               string
+	ProxyFingerprint           string
+	ProxyPool                  bool
+	SourceID                   uint64
+	Location                   string
+	AccountCapacity            int
+	ProxyProfileID             uint64
+	ProxyProfileName           string
+	UserAgent                  string
+	CookieConfigured           bool
+	AccountBoundProxy          bool
+	Health                     float64
+	FailureCount               int
+	CooldownUntil              *time.Time
+	LastError                  string
+	ProbeStatus                ProbeStatus
+	LastProbedAt               *time.Time
+	ProbeLatencyMS             int
+	ExitIP                     string
+	ProbeError                 string
+	ProbeProvider              ProbeProvider
 	IPv4Probe                  ProbeFamilyResult
 	IPv6Probe                  ProbeFamilyResult
 	AssignedAccountCount       int
@@ -165,6 +167,7 @@ type SubscriptionSource struct {
 	EncryptedProxyURL      string
 	RefreshIntervalSeconds int
 	DefaultAccountCapacity int
+	ExcludeHongKong        bool
 	LastSyncedAt           *time.Time
 	NextSyncAt             *time.Time
 	LastSyncImported       int
@@ -182,6 +185,7 @@ type PublicSubscriptionSource struct {
 	ProxyConfigured        bool
 	RefreshIntervalSeconds int
 	DefaultAccountCapacity int
+	ExcludeHongKong        bool
 	LastSyncedAt           *time.Time
 	NextSyncAt             *time.Time
 	LastSyncImported       int
@@ -246,14 +250,14 @@ func (value ProbeProvider) Normalized() ProbeProvider {
 // fallback work. It defaults to a conservative disabled state for mutations
 // and fallback routing.
 type OperationsConfig struct {
-	ProbeProvider             ProbeProvider
-	ProbeIntervalSeconds         int
-	AutoAssignEnabled            bool
-	AutoBalanceEnabled           bool
+	ProbeProvider                 ProbeProvider
+	ProbeIntervalSeconds          int
+	AutoAssignEnabled             bool
+	AutoBalanceEnabled            bool
 	AutoCleanupUnavailableEnabled bool
-	AssignmentIntervalSeconds    int
-	Fallbacks                 map[Scope]FallbackConfig
-	UpdatedAt                 time.Time
+	AssignmentIntervalSeconds     int
+	Fallbacks                     map[Scope]FallbackConfig
+	UpdatedAt                     time.Time
 }
 
 func DefaultOperationsConfig() OperationsConfig {

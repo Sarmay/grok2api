@@ -44,7 +44,7 @@ import { VirtualTableBody } from "@/shared/components/virtual-table-body";
 
 type SourceForm = Omit<EgressSourceInput, "url" | "proxyURL" | "clearProxyURL"> & { url: string; proxyEnabled: boolean; proxyURL: string };
 const emptySource: SourceForm = {
-  name: "", scope: "grok_build", enabled: true, url: "", proxyEnabled: false, proxyURL: "", refreshIntervalSeconds: 900, defaultAccountCapacity: 0,
+  name: "", scope: "grok_build", enabled: true, url: "", proxyEnabled: false, proxyURL: "", refreshIntervalSeconds: 900, defaultAccountCapacity: 0, excludeHongKong: false,
 };
 // Eight nodes run concurrently; each checks IPv4 and IPv6 in parallel with a
 // 15-second ceiling. Keeping a request to 32 nodes leaves enough headroom for
@@ -269,6 +269,7 @@ export function EgressSources({ scopeLabel }: { scopeLabel: (scope: EgressScope)
         proxyURL: sourceForm.proxyEnabled ? (sourceForm.proxyURL.trim() || undefined) : undefined,
         clearProxyURL: Boolean(sourceEditing?.proxyConfigured && !sourceForm.proxyEnabled),
         refreshIntervalSeconds: sourceForm.refreshIntervalSeconds, defaultAccountCapacity: sourceForm.defaultAccountCapacity,
+        excludeHongKong: sourceForm.excludeHongKong,
       };
       return sourceEditing ? updateEgressSource(sourceEditing.id, input) : createEgressSource(input);
     },
@@ -294,7 +295,7 @@ export function EgressSources({ scopeLabel }: { scopeLabel: (scope: EgressScope)
     }
     setSourceForm({
       name: value.name, scope: value.scope, enabled: value.enabled, url: "", refreshIntervalSeconds: value.refreshIntervalSeconds,
-      proxyEnabled: value.proxyConfigured, proxyURL: "", defaultAccountCapacity: value.defaultAccountCapacity,
+      proxyEnabled: value.proxyConfigured, proxyURL: "", defaultAccountCapacity: value.defaultAccountCapacity, excludeHongKong: value.excludeHongKong,
     });
     setSourceEditing(value);
   }
@@ -376,6 +377,10 @@ export function EgressSources({ scopeLabel }: { scopeLabel: (scope: EgressScope)
             <div className="grid gap-3 sm:grid-cols-2">
               <Control label={t("settings.egress.refreshInterval")}><Input type="number" min={60} max={86400} value={sourceForm.refreshIntervalSeconds} onChange={(event) => setSourceForm({ ...sourceForm, refreshIntervalSeconds: Number(event.target.value) })} /></Control>
               <Control label={t("settings.egress.capacity")}><Input type="number" min={0} max={100000} placeholder={t("settings.egress.unlimited")} value={sourceForm.defaultAccountCapacity || ""} onChange={(event) => setSourceForm({ ...sourceForm, defaultAccountCapacity: Number(event.target.value) })} /></Control>
+            </div>
+            <div className="space-y-1.5">
+              <ToggleControl label={t("settings.egress.excludeHongKong")} checked={sourceForm.excludeHongKong} onChange={(excludeHongKong) => setSourceForm({ ...sourceForm, excludeHongKong })} />
+              <p className="px-1 text-xs leading-5 text-muted-foreground">{t("settings.egress.excludeHongKongHelp")}</p>
             </div>
             <DialogFooter><Button type="button" size="sm" variant="secondary" onClick={() => setSourceEditing(undefined)}>{t("common.cancel")}</Button><Button type="submit" size="sm" disabled={!sourceForm.name.trim() || (!sourceEditing && !sourceForm.url.trim()) || (sourceForm.proxyEnabled && !sourceEditing?.proxyConfigured && !sourceForm.proxyURL.trim()) || sourceProxyInvalid || saveSource.isPending}>{saveSource.isPending ? <Spinner /> : null}{t("common.save")}</Button></DialogFooter>
           </form>

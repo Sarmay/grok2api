@@ -66,6 +66,12 @@ func (r *EgressRepository) ListEgressNodePage(ctx context.Context, input reposit
 	if input.Filter.ProbeStatus != "" {
 		query = query.Where("egress_nodes.probe_status = ?", input.Filter.ProbeStatus)
 	}
+	switch input.Filter.Location {
+	case "HK":
+		query = query.Where("egress_nodes.location = ?", "HK")
+	case "not_hk":
+		query = query.Where("egress_nodes.location <> ?", "HK")
+	}
 	switch input.Filter.Assignment {
 	case "bound":
 		query = query.Where("EXISTS (SELECT 1 FROM provider_accounts account WHERE account.egress_node_id = egress_nodes.id)")
@@ -477,7 +483,7 @@ func (r *EgressRepository) UpsertEgressNodesFromSource(ctx context.Context, sour
 				Columns: []clause.Column{{Name: "source_id"}, {Name: "source_key"}},
 				DoUpdates: clause.Assignments(map[string]any{
 					"name": row.Name, "scope": row.Scope, "enabled": row.Enabled, "proxy_pool": row.ProxyPool,
-					"account_capacity": row.AccountCapacity, "encrypted_proxy_url": row.EncryptedProxyURL,
+					"account_capacity": row.AccountCapacity, "location": row.Location, "encrypted_proxy_url": row.EncryptedProxyURL,
 					"updated_at": time.Now().UTC(),
 				}),
 			}).Create(&row).Error; err != nil {
@@ -999,7 +1005,7 @@ func (r *EgressRepository) assignedAccountCountsForNodes(ctx context.Context, no
 func toEgressDomain(row egressNodeModel) egress.Node {
 	return egress.Node{
 		ID: row.ID, Name: row.Name, Scope: egress.Scope(row.Scope), Enabled: row.Enabled, ProxyPool: row.ProxyPool,
-		SourceID: valueEgressNodeID(row.SourceID), SourceKey: row.SourceKey, AccountCapacity: row.AccountCapacity,
+		SourceID: valueEgressNodeID(row.SourceID), SourceKey: row.SourceKey, Location: row.Location, AccountCapacity: row.AccountCapacity,
 		ProxyProfileID:    valueEgressNodeID(row.ProxyProfileID),
 		EncryptedProxyURL: row.EncryptedProxyURL, UserAgent: row.UserAgent, EncryptedCloudflareCookie: row.EncryptedCloudflareCookie,
 		ClearanceRefreshedAt: row.ClearanceRefreshedAt, ClearanceFingerprint: row.ClearanceFingerprint,
@@ -1024,7 +1030,7 @@ func fromEgressDomain(value egress.Node) egressNodeModel {
 	}
 	return egressNodeModel{
 		ID: value.ID, Name: value.Name, Scope: string(value.Scope), Enabled: value.Enabled, ProxyPool: value.ProxyPool,
-		SourceID: egressNodeID(value.SourceID), SourceKey: value.SourceKey, AccountCapacity: value.AccountCapacity,
+		SourceID: egressNodeID(value.SourceID), SourceKey: value.SourceKey, Location: value.Location, AccountCapacity: value.AccountCapacity,
 		ProxyProfileID:    egressNodeID(value.ProxyProfileID),
 		EncryptedProxyURL: value.EncryptedProxyURL, UserAgent: value.UserAgent, EncryptedCloudflareCookie: value.EncryptedCloudflareCookie,
 		ClearanceRefreshedAt: value.ClearanceRefreshedAt, ClearanceFingerprint: value.ClearanceFingerprint,
@@ -1073,7 +1079,7 @@ func probeFamilyFromRow(status string, testedAt *time.Time, latencyMS int, exitI
 func toEgressSubscriptionSourceDomain(row egressSubscriptionSourceModel) egress.SubscriptionSource {
 	return egress.SubscriptionSource{
 		ID: row.ID, Name: row.Name, Scope: egress.Scope(row.Scope), Enabled: row.Enabled, EncryptedURL: row.EncryptedURL, EncryptedProxyURL: row.EncryptedProxyURL,
-		RefreshIntervalSeconds: row.RefreshIntervalSeconds, DefaultAccountCapacity: row.DefaultAccountCapacity,
+		RefreshIntervalSeconds: row.RefreshIntervalSeconds, DefaultAccountCapacity: row.DefaultAccountCapacity, ExcludeHongKong: row.ExcludeHongKong,
 		LastSyncedAt: row.LastSyncedAt, NextSyncAt: row.NextSyncAt, LastSyncImported: row.LastSyncImported, LastSyncError: row.LastSyncError,
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
@@ -1082,7 +1088,7 @@ func toEgressSubscriptionSourceDomain(row egressSubscriptionSourceModel) egress.
 func fromEgressSubscriptionSourceDomain(value egress.SubscriptionSource) egressSubscriptionSourceModel {
 	return egressSubscriptionSourceModel{
 		ID: value.ID, Name: value.Name, Scope: string(value.Scope), Enabled: value.Enabled, EncryptedURL: value.EncryptedURL, EncryptedProxyURL: value.EncryptedProxyURL,
-		RefreshIntervalSeconds: value.RefreshIntervalSeconds, DefaultAccountCapacity: value.DefaultAccountCapacity,
+		RefreshIntervalSeconds: value.RefreshIntervalSeconds, DefaultAccountCapacity: value.DefaultAccountCapacity, ExcludeHongKong: value.ExcludeHongKong,
 		LastSyncedAt: value.LastSyncedAt, NextSyncAt: value.NextSyncAt, LastSyncImported: value.LastSyncImported, LastSyncError: value.LastSyncError,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}

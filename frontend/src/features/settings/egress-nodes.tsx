@@ -33,8 +33,8 @@ import { cn } from "@/shared/lib/cn";
 import { nextTableSort, type SortOrder, type TableSort } from "@/shared/lib/table-sort";
 
 const emptyInput: EgressNodeInput = { name: "", scope: "grok_build", enabled: true, proxyPool: false, accountCapacity: 0, proxyURL: "", userAgent: "", cloudflareCookies: "" };
-type ImportForm = { name: string; scope: EgressScope; accountCapacity: number; content: string };
-const emptyImport: ImportForm = { name: "", scope: "grok_build", accountCapacity: 0, content: "" };
+type ImportForm = { name: string; scope: EgressScope; accountCapacity: number; content: string; excludeHongKong: boolean };
+const emptyImport: ImportForm = { name: "", scope: "grok_build", accountCapacity: 0, content: "", excludeHongKong: false };
 
 export function EgressNodes({ title, clearanceMode }: { title: string; clearanceMode: ClearanceMode }) {
   const { t } = useTranslation();
@@ -53,6 +53,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
   const [enabledFilter, setEnabledFilter] = useState("");
   const [probeFilter, setProbeFilter] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
   const [selected, setSelected] = useState<Map<string, EgressNodeDTO>>(() => new Map());
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -60,10 +61,10 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
   const [profileLibraryCreate, setProfileLibraryCreate] = useState(false);
   const debouncedSearch = useDebouncedValue(search);
   const query = useQuery({
-    queryKey: ["egress-nodes", "page", page, pageSize, debouncedSearch, scopeFilter, enabledFilter, probeFilter, assignmentFilter, sort.field, sort.order],
+    queryKey: ["egress-nodes", "page", page, pageSize, debouncedSearch, scopeFilter, enabledFilter, probeFilter, assignmentFilter, locationFilter, sort.field, sort.order],
     queryFn: () => listEgressNodes({
       page, pageSize, search: debouncedSearch, scope: scopeFilter as EgressScope | "", enabled: enabledFilter,
-      probe: probeFilter, assignment: assignmentFilter, sortBy: sort.field || undefined, sortOrder: sort.field ? sort.order : undefined,
+      probe: probeFilter, assignment: assignmentFilter, location: locationFilter, sortBy: sort.field || undefined, sortOrder: sort.field ? sort.order : undefined,
     }),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
@@ -238,7 +239,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
   const selectedAssignedAccounts = selectedNodes.reduce((total, node) => total + node.assignedAccountCount, 0);
   const selectedSourceNodes = selectedNodes.filter((node) => node.sourceId).length;
   const batchPending = removeMany.isPending || updateManyEnabled.isPending;
-  const hasActiveFilters = Boolean(debouncedSearch || scopeFilter || enabledFilter || probeFilter || assignmentFilter);
+  const hasActiveFilters = Boolean(debouncedSearch || scopeFilter || enabledFilter || probeFilter || assignmentFilter || locationFilter);
 
   return (
     <div className="space-y-8">
@@ -276,6 +277,10 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                   { id: "assignment", label: t("settings.egress.accounts"), value: assignmentFilter, onChange: (value) => { setAssignmentFilter(value); setPage(1); setSelected(new Map()); }, options: [
                     { value: "bound", label: t("settings.egress.assigned") },
                     { value: "unbound", label: t("settings.egress.unassigned") },
+                  ] },
+                  { id: "location", label: t("settings.egress.location"), value: locationFilter, onChange: (value) => { setLocationFilter(value); setPage(1); setSelected(new Map()); }, options: [
+                    { value: "HK", label: t("settings.egress.locationHK") },
+                    { value: "not_hk", label: t("settings.egress.locationNotHK") },
                   ] },
                 ]} />
               </div>
@@ -315,6 +320,7 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
                   <div className="flex min-w-0 items-center gap-2">
                     <span className={cn("size-1.5 shrink-0 rounded-full", node.enabled ? "bg-emerald-500" : "bg-muted-foreground/35")} />
                     <span className={cn("truncate text-xs font-medium", !node.enabled && "text-muted-foreground")} title={node.name}>{node.name}</span>
+                    {node.location ? <LocationBadge code={node.location} /> : null}
                     {node.lastError ? <ErrorTooltip message={node.lastError} /> : null}
                   </div>
                 </TableCell>
@@ -505,6 +511,13 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
             </div>
             <Field label={t("settings.egress.capacity")} controlId="egress-import-capacity"><Input id="egress-import-capacity" type="number" min={0} max={100000} placeholder={t("settings.egress.unlimited")} value={importForm.accountCapacity || ""} onChange={(event) => setImportForm({ ...importForm, accountCapacity: Number(event.target.value) })} /></Field>
             <Field label={t("settings.egress.proxyList")} controlId="egress-import-list"><Textarea className="min-h-52 font-mono text-xs" id="egress-import-list" value={importForm.content} onChange={(event) => setImportForm({ ...importForm, content: event.target.value })} /></Field>
+            <div className="space-y-1.5">
+              <div className="flex min-h-10 items-center justify-between gap-4 rounded-md bg-muted/45 px-3">
+                <Label htmlFor="egress-import-exclude-hk" className="text-xs font-medium">{t("settings.egress.excludeHongKong")}</Label>
+                <Switch id="egress-import-exclude-hk" checked={importForm.excludeHongKong} onCheckedChange={(excludeHongKong) => setImportForm({ ...importForm, excludeHongKong })} />
+              </div>
+              <p className="px-1 text-xs leading-5 text-muted-foreground">{t("settings.egress.excludeHongKongHelp")}</p>
+            </div>
             <DialogFooter><Button type="button" size="sm" variant="secondary" onClick={() => setImportOpen(false)}>{t("common.cancel")}</Button><Button type="submit" size="sm" disabled={!importForm.name.trim() || !importForm.content.trim() || importText.isPending}>{importText.isPending ? <Spinner /> : null}{t("settings.egress.importText")}</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -663,6 +676,13 @@ function HealthMeter({ value }: { value: number }) {
       <span className="w-8 text-right text-[11px] tabular-nums text-muted-foreground">{percent}%</span>
     </div>
   );
+}
+
+function LocationBadge({ code }: { code: string }) {
+  const { t, i18n } = useTranslation();
+  const key = `settings.egress.location${code}`;
+  const label = i18n.exists(key) ? t(key) : code;
+  return <Badge variant="outline" className={cn("shrink-0 px-1.5 text-[10px]", code === "HK" && "border-amber-600/40 text-amber-700 dark:text-amber-300")}>{label}</Badge>;
 }
 
 function ProbeSummary({ node }: { node: EgressNodeDTO }) {

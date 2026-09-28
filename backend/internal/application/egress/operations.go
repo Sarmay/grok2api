@@ -62,6 +62,7 @@ type SubscriptionSourceInput struct {
 	ClearProxyURL          bool
 	RefreshIntervalSeconds *int
 	DefaultAccountCapacity *int
+	ExcludeHongKong        bool
 }
 
 type SourceListFilter struct {
@@ -73,6 +74,7 @@ type ImportInput struct {
 	Scope           domain.Scope
 	AccountCapacity int
 	Content         string
+	ExcludeHongKong bool
 }
 
 type ImportResult struct {
@@ -87,13 +89,13 @@ type ProbeBatchResult struct {
 }
 
 type OperationsConfigInput struct {
-	ProbeProvider             domain.ProbeProvider
+	ProbeProvider                 domain.ProbeProvider
 	ProbeIntervalSeconds          int
 	AutoAssignEnabled             bool
 	AutoBalanceEnabled            bool
 	AutoCleanupUnavailableEnabled bool
 	AssignmentIntervalSeconds     int
-	Fallbacks                 map[domain.Scope]FallbackConfigInput
+	Fallbacks                     map[domain.Scope]FallbackConfigInput
 }
 
 type FallbackConfigInput struct {
@@ -261,6 +263,8 @@ func (s *Service) ImportText(ctx context.Context, input ImportInput) (ImportResu
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
+	entries, excluded := selectSubscriptionEntries(entries, input.ExcludeHongKong)
+	skipped += excluded
 	nodes := make([]domain.Node, 0, len(entries))
 	for index, entry := range entries {
 		encryptedProxy, encryptErr := s.cipher.Encrypt(entry.ProxyURL)
@@ -268,7 +272,7 @@ func (s *Service) ImportText(ctx context.Context, input ImportInput) (ImportResu
 			return ImportResult{}, encryptErr
 		}
 		nodes = append(nodes, domain.Node{
-			Name: sourceNodeName(input.Name, index), Scope: input.Scope, Enabled: true,
+			Name: sourceNodeName(input.Name, index), Scope: input.Scope, Enabled: true, Location: entry.Location,
 			AccountCapacity: input.AccountCapacity, EncryptedProxyURL: encryptedProxy, Health: 1,
 			ProbeStatus: domain.ProbeStatusUnknown,
 		})
@@ -514,6 +518,11 @@ func (s *Service) applySourceInput(value domain.SubscriptionSource, input Subscr
 		}
 		value.DefaultAccountCapacity = *input.DefaultAccountCapacity
 	}
+	if value.ExcludeHongKong != input.ExcludeHongKong {
+		value.NextSyncAt = nil
+		value.LastSyncError = ""
+	}
+	value.ExcludeHongKong = input.ExcludeHongKong
 	if input.ClearURL {
 		value.EncryptedURL = ""
 	} else if input.URL != nil {
@@ -561,7 +570,8 @@ func publicSource(value domain.SubscriptionSource) domain.PublicSubscriptionSour
 		ID: value.ID, Name: value.Name, Scope: value.Scope, Enabled: value.Enabled, URLConfigured: value.EncryptedURL != "",
 		ProxyConfigured:        value.EncryptedProxyURL != "",
 		RefreshIntervalSeconds: value.RefreshIntervalSeconds, DefaultAccountCapacity: value.DefaultAccountCapacity,
-		LastSyncedAt: value.LastSyncedAt, NextSyncAt: value.NextSyncAt, LastSyncImported: value.LastSyncImported, LastSyncError: value.LastSyncError,
+		ExcludeHongKong: value.ExcludeHongKong,
+		LastSyncedAt:    value.LastSyncedAt, NextSyncAt: value.NextSyncAt, LastSyncImported: value.LastSyncImported, LastSyncError: value.LastSyncError,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 }
