@@ -11,6 +11,22 @@ import (
 	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
 )
 
+func TestInitializeSchemaDedupeSkipsLegacyEgressNodes(t *testing.T) {
+	ctx := context.Background()
+	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "legacy-egress.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.db.WithContext(ctx).AutoMigrate(&legacyEgressNodeModel{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InitializeSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertSQLiteUniqueIndexes(t, database, "egress_nodes", "uidx_egress_nodes_source_key")
+}
+
 func TestInitializeSchemaUpgradesProviderChecksForConsole(t *testing.T) {
 	ctx := context.Background()
 	database, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "legacy.db"))
@@ -69,6 +85,7 @@ func TestInitializeSchemaUpgradesProviderChecksForConsole(t *testing.T) {
 		}
 	}
 	assertSQLiteUniqueIndexes(t, database, "provider_accounts", "idx_provider_accounts_identity_key")
+	assertSQLiteUniqueIndexes(t, database, "egress_nodes", "uidx_egress_nodes_source_key")
 	assertSQLiteUniqueIndexes(t, database, "model_routes", "uidx_model_routes_managed_public_capability")
 	assertSQLiteIndexes(t, database, "model_routes", "idx_model_routes_public_id_lookup", "idx_model_routes_provider_upstream", "idx_model_routes_grouping")
 	assertSQLiteMissingIndexes(t, database, "model_routes", "idx_model_routes_public_id")

@@ -443,10 +443,16 @@ func (r *EgressRepository) UpdateEgressSourceSync(ctx context.Context, id uint64
 	return nil
 }
 
+const (
+	removedSubscriptionProbeError = "subscription entry removed"
+	staleSubscriptionDeleteBatch  = 500
+)
+
 // UpsertEgressNodesFromSource replaces the active representation of a source
-// atomically. Stale nodes are disabled instead of deleted so auto-assigned
-// accounts can be moved by the next balancing cycle without touching manual
-// bindings.
+// atomically. Entries that left the subscription are deleted when no account
+// is bound to them, so a rotating feed cannot fill the node list with disabled
+// history. Bound nodes stay disabled until rebalance moves automatic accounts;
+// manual bindings are left in place.
 func (r *EgressRepository) UpsertEgressNodesFromSource(ctx context.Context, sourceID uint64, values []egress.Node) (int, error) {
 	if sourceID == 0 {
 		return 0, errors.New("subscription source id is required")
@@ -483,14 +489,17 @@ func (r *EgressRepository) UpsertEgressNodesFromSource(ctx context.Context, sour
 				existing[value.SourceKey] = struct{}{}
 			}
 		}
+		if err := deleteUnboundStaleSubscriptionNodes(tx, sourceID, keys); err != nil {
+			return err
+		}
 		stale := tx.Model(&egressNodeModel{}).Where("source_id = ?", sourceID)
 		if len(keys) > 0 {
 			stale = stale.Where("source_key NOT IN ?", keys)
 		}
 		if err := stale.Updates(map[string]any{
-			"enabled": false, "probe_status": string(egress.ProbeStatusUnknown), "probe_error": "subscription entry removed", "probe_provider": "",
-			"ipv4_probe_status": string(egress.ProbeStatusUnknown), "ipv4_last_probed_at": nil, "ipv4_probe_latency_ms": 0, "ipv4_exit_ip": "", "ipv4_probe_error": "subscription entry removed",
-			"ipv6_probe_status": string(egress.ProbeStatusUnknown), "ipv6_last_probed_at": nil, "ipv6_probe_latency_ms": 0, "ipv6_exit_ip": "", "ipv6_probe_error": "subscription entry removed",
+			"enabled": false, "probe_status": string(egress.ProbeStatusUnknown), "probe_error": removedSubscriptionProbeError, "probe_provider": "",
+			"ipv4_probe_status": string(egress.ProbeStatusUnknown), "ipv4_last_probed_at": nil, "ipv4_probe_latency_ms": 0, "ipv4_exit_ip": "", "ipv4_probe_error": removedSubscriptionProbeError,
+			"ipv6_probe_status": string(egress.ProbeStatusUnknown), "ipv6_last_probed_at": nil, "ipv6_probe_latency_ms": 0, "ipv6_exit_ip": "", "ipv6_probe_error": removedSubscriptionProbeError,
 			"updated_at": time.Now().UTC(),
 		}).Error; err != nil {
 			return mapError(err)
@@ -501,6 +510,146 @@ func (r *EgressRepository) UpsertEgressNodesFromSource(ctx context.Context, sour
 		return nil
 	})
 	return returned, err
+}
+
+func deleteUnboundStaleSubscriptionNodes(tx *gorm.DB, sourceID uint64, keys []string) error {
+	for {
+		query := tx.Model(&egressNodeModel{}).
+			Where("source_id = ?", sourceID).
+			Where("NOT EXISTS (SELECT 1 FROM provider_accounts account WHERE account.egress_node_id = egress_nodes.id)")
+		if len(keys) > 0 {
+			query = query.Where("source_key NOT IN ?", keys)
+		}
+		var ids []uint64
+		if err := query.Order("id ASC").Limit(staleSubscriptionDeleteBatch).Pluck("id", &ids).Error; err != nil {
+			return mapError(err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		deleted, err := deleteEgressNodeIDs(tx, ids)
+		if err != nil {
+			return err
+		}
+		if deleted == 0 {
+			return errors.New("删除过期订阅节点失败")
+		}
+	}
+}
+
+// dedupeEgressSubscriptionNodes collapses rows that share a subscription
+// identity. SQLite table rebuilds used to drop the unique index, so repeated
+// syncs could insert the same proxy more than once. Account bindings move to
+// the oldest row before the extras are deleted.
+func (d *Database) dedupeEgressSubscriptionNodes(ctx context.Context) error {
+	migrator := d.db.WithContext(ctx).Migrator()
+	if !migrator.HasTable(&egressNodeModel{}) || !migrator.HasColumn(&egressNodeModel{}, "source_id") || !migrator.HasColumn(&egressNodeModel{}, "source_key") {
+		return nil
+	}
+	for {
+		type duplicateGroup struct {
+			SourceID  uint64
+			SourceKey string
+			KeepID    uint64
+		}
+		var groups []duplicateGroup
+		err := d.db.WithContext(ctx).Raw(`
+			SELECT source_id, source_key, MIN(id) AS keep_id
+			FROM egress_nodes
+			WHERE source_id IS NOT NULL AND source_key <> ''
+			GROUP BY source_id, source_key
+			HAVING COUNT(*) > 1
+			ORDER BY source_id, source_key
+			LIMIT 100
+		`).Scan(&groups).Error
+		if err != nil {
+			return err
+		}
+		if len(groups) == 0 {
+			return nil
+		}
+		err = d.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			progressed := false
+			for _, group := range groups {
+				var duplicateIDs []uint64
+				if err := tx.Model(&egressNodeModel{}).
+					Where("source_id = ? AND source_key = ? AND id <> ?", group.SourceID, group.SourceKey, group.KeepID).
+					Order("id ASC").Pluck("id", &duplicateIDs).Error; err != nil {
+					return err
+				}
+				if len(duplicateIDs) == 0 {
+					continue
+				}
+				progressed = true
+				for start := 0; start < len(duplicateIDs); start += staleSubscriptionDeleteBatch {
+					end := min(start+staleSubscriptionDeleteBatch, len(duplicateIDs))
+					batch := duplicateIDs[start:end]
+					if err := tx.Model(&accountModel{}).Where("egress_node_id IN ?", batch).
+						Update("egress_node_id", group.KeepID).Error; err != nil {
+						return err
+					}
+					if _, err := deleteEgressNodeIDs(tx, batch); err != nil {
+						return err
+					}
+				}
+			}
+			if !progressed {
+				return errors.New("重复订阅节点没有被合并")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// deleteUnboundRemovedSubscriptionNodes drops subscription entries that an
+// earlier sync only disabled. Bound nodes stay so manual assignments and the
+// next automatic rebalance still have a node to move from.
+func (d *Database) deleteUnboundRemovedSubscriptionNodes(ctx context.Context) error {
+	if !d.db.WithContext(ctx).Migrator().HasTable(&egressNodeModel{}) {
+		return nil
+	}
+	for {
+		var ids []uint64
+		err := d.db.WithContext(ctx).Model(&egressNodeModel{}).
+			Where("source_id IS NOT NULL AND probe_error = ?", removedSubscriptionProbeError).
+			Where("NOT EXISTS (SELECT 1 FROM provider_accounts account WHERE account.egress_node_id = egress_nodes.id)").
+			Order("id ASC").Limit(staleSubscriptionDeleteBatch).Pluck("id", &ids).Error
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		var deleted int64
+		err = d.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var current []uint64
+			if err := tx.Model(&egressNodeModel{}).
+				Where("id IN ?", ids).
+				Where("source_id IS NOT NULL AND probe_error = ?", removedSubscriptionProbeError).
+				Where("NOT EXISTS (SELECT 1 FROM provider_accounts account WHERE account.egress_node_id = egress_nodes.id)").
+				Pluck("id", &current).Error; err != nil {
+				return err
+			}
+			var err error
+			deleted, err = deleteEgressNodeIDs(tx, current)
+			if err != nil {
+				return err
+			}
+			if len(current) > 0 && deleted == 0 {
+				return errors.New("删除已移除的订阅节点失败")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if deleted == 0 {
+			return nil
+		}
+	}
 }
 
 func (r *EgressRepository) GetEgressOperationsConfig(ctx context.Context) (egress.OperationsConfig, error) {
@@ -944,7 +1093,7 @@ func toEgressOperationsConfigDomain(row egressOperationsConfigModel) egress.Oper
 		ProbeProvider:        egress.ProbeProvider(row.ProbeProvider).Normalized(),
 		ProbeIntervalSeconds: row.ProbeIntervalSeconds, AutoAssignEnabled: row.AutoAssignEnabled, AutoBalanceEnabled: row.AutoBalanceEnabled,
 		AutoCleanupUnavailableEnabled: row.AutoCleanupUnavailableEnabled,
-		AssignmentIntervalSeconds: row.AssignmentIntervalSeconds,
+		AssignmentIntervalSeconds:     row.AssignmentIntervalSeconds,
 		Fallbacks: map[egress.Scope]egress.FallbackConfig{
 			egress.ScopeBuild:        {Mode: egress.FallbackMode(row.BuildFallbackMode).Normalized(), NodeID: row.BuildFallbackNodeID},
 			egress.ScopeWeb:          {Mode: egress.FallbackMode(row.WebFallbackMode).Normalized(), NodeID: row.WebFallbackNodeID},

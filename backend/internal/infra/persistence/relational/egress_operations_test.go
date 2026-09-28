@@ -964,6 +964,181 @@ func TestEgressOperationsSubscriptionImportCountsOnlyNewNodes(t *testing.T) {
 	if first != 1 || second != 0 {
 		t.Fatalf("import counts = first %d, second %d", first, second)
 	}
+	listed, err := nodes.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].SourceID != source.ID || listed[0].SourceKey != "count-node" {
+		t.Fatalf("persisted subscription nodes = %#v", listed)
+	}
+	assertSQLiteUniqueIndexes(t, database, "egress_nodes", "uidx_egress_nodes_source_key")
+}
+
+func TestSubscriptionSyncDeletesUnboundStaleNodes(t *testing.T) {
+	ctx := context.Background()
+	database := openTestDatabase(t)
+	accounts := NewAccountRepository(database)
+	nodes := NewEgressRepository(database)
+	cipher := egressOperationsCipher(t)
+	source, err := nodes.CreateEgressSource(ctx, egress.SubscriptionSource{
+		Name: "rotating-source", Scope: egress.ScopeBuild, Enabled: true, EncryptedURL: "encrypted",
+		RefreshIntervalSeconds: 900,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := cipher.Encrypt("http://rotating.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := func(name, key string) egress.Node {
+		return egress.Node{
+			Name: name, Scope: egress.ScopeBuild, Enabled: true, SourceID: source.ID,
+			SourceKey: key, EncryptedProxyURL: proxy, Health: 1,
+		}
+	}
+	if _, err := nodes.UpsertEgressNodesFromSource(ctx, source.ID, []egress.Node{
+		entry("keep", "keep"), entry("drop", "drop"), entry("manual", "manual"), entry("auto", "auto"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := nodes.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]egress.Node, len(listed))
+	for _, node := range listed {
+		byKey[node.SourceKey] = node
+	}
+	manualAccount := createEgressOperationsAccount(t, ctx, accounts, "manual-binding")
+	autoAccount := createEgressOperationsAccount(t, ctx, accounts, "auto-binding")
+	manualID := byKey["manual"].ID
+	autoID := byKey["auto"].ID
+	now := time.Now().UTC()
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{manualAccount.ID}, &manualID, account.EgressAssignmentManual, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{autoAccount.ID}, &autoID, account.EgressAssignmentAuto, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := nodes.UpsertEgressNodesFromSource(ctx, source.ID, []egress.Node{entry("keep", "keep")}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err = nodes.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey = make(map[string]egress.Node, len(listed))
+	for _, node := range listed {
+		byKey[node.SourceKey] = node
+	}
+	if len(listed) != 3 || !byKey["keep"].Enabled || byKey["manual"].Enabled || byKey["auto"].Enabled {
+		t.Fatalf("subscription nodes after rotation = %#v", listed)
+	}
+	if _, exists := byKey["drop"]; exists {
+		t.Fatal("unbound stale subscription node was kept")
+	}
+	if byKey["manual"].ProbeError != removedSubscriptionProbeError || byKey["auto"].ProbeError != removedSubscriptionProbeError {
+		t.Fatalf("bound stale nodes = manual %#v auto %#v", byKey["manual"], byKey["auto"])
+	}
+	storedManual, err := accounts.Get(ctx, manualAccount.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedManual.EgressNodeID != byKey["manual"].ID || storedManual.EgressAssignmentMode != account.EgressAssignmentManual {
+		t.Fatalf("manual binding = %#v", storedManual)
+	}
+	storedAuto, err := accounts.Get(ctx, autoAccount.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedAuto.EgressNodeID != byKey["auto"].ID || storedAuto.EgressAssignmentMode != account.EgressAssignmentAuto {
+		t.Fatalf("auto binding = %#v", storedAuto)
+	}
+}
+
+func TestInitializeSchemaCollapsesDuplicateSubscriptionNodes(t *testing.T) {
+	ctx := context.Background()
+	database := openTestDatabase(t)
+	if err := database.db.Exec("DROP INDEX uidx_egress_nodes_source_key").Error; err != nil {
+		t.Fatal(err)
+	}
+	accounts := NewAccountRepository(database)
+	nodes := NewEgressRepository(database)
+	cipher := egressOperationsCipher(t)
+	source, err := nodes.CreateEgressSource(ctx, egress.SubscriptionSource{
+		Name: "duplicate-source", Scope: egress.ScopeBuild, Enabled: true, EncryptedURL: "encrypted",
+		RefreshIntervalSeconds: 900,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := cipher.Encrypt("http://duplicate.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := nodes.CreateEgressNode(ctx, egress.Node{
+		Name: "dup-a", Scope: egress.ScopeBuild, Enabled: true, SourceID: source.ID,
+		SourceKey: "same", EncryptedProxyURL: proxy, Health: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := nodes.CreateEgressNode(ctx, egress.Node{
+		Name: "dup-b", Scope: egress.ScopeBuild, Enabled: true, SourceID: source.ID,
+		SourceKey: "same", EncryptedProxyURL: proxy, Health: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential := createEgressOperationsAccount(t, ctx, accounts, "duplicate-binding")
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{credential.ID}, &second.ID, account.EgressAssignmentManual, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nodes.CreateEgressNode(ctx, egress.Node{
+		Name: "removed", Scope: egress.ScopeBuild, Enabled: false, SourceID: source.ID,
+		SourceKey: "removed", EncryptedProxyURL: proxy, Health: 1, ProbeError: removedSubscriptionProbeError,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	boundRemoved, err := nodes.CreateEgressNode(ctx, egress.Node{
+		Name: "bound-removed", Scope: egress.ScopeBuild, Enabled: false, SourceID: source.ID,
+		SourceKey: "bound-removed", EncryptedProxyURL: proxy, Health: 1, ProbeError: removedSubscriptionProbeError,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundAccount := createEgressOperationsAccount(t, ctx, accounts, "bound-removed")
+	if _, err := accounts.UpdateEgressBindings(ctx, account.ProviderBuild, []uint64{boundAccount.ID}, &boundRemoved.ID, account.EgressAssignmentManual, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InitializeSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := nodes.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]egress.Node, len(listed))
+	for _, node := range listed {
+		byKey[node.SourceKey] = node
+	}
+	if len(listed) != 2 || byKey["same"].ID != first.ID || byKey["bound-removed"].ID != boundRemoved.ID {
+		t.Fatalf("nodes after schema repair = %#v", listed)
+	}
+	if _, exists := byKey["removed"]; exists || byKey["same"].ID == second.ID {
+		t.Fatalf("duplicate or unbound removed node survived: %#v", listed)
+	}
+	stored, err := accounts.Get(ctx, credential.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.EgressNodeID != first.ID || stored.EgressAssignmentMode != account.EgressAssignmentManual {
+		t.Fatalf("binding after duplicate collapse = %#v", stored)
+	}
+	assertSQLiteUniqueIndexes(t, database, "egress_nodes", "uidx_egress_nodes_source_key")
 }
 
 func TestEgressOperationsMaintenanceRetriesAssignmentAfterFailure(t *testing.T) {

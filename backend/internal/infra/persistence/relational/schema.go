@@ -90,6 +90,9 @@ var schemaIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_scope_health ON egress_nodes(scope, enabled, health DESC, id ASC)",
 	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_probe_due ON egress_nodes(enabled, last_probed_at, id)",
 	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_proxy_profile ON egress_nodes(proxy_profile_id, id)",
+	// SQLite 重建 egress_nodes 以修改 CHECK 时会丢掉 GORM 建的唯一索引。
+	// 订阅同步用 (source_id, source_key) 做 ON CONFLICT，缺了它就会每次插入新节点。
+	"CREATE UNIQUE INDEX IF NOT EXISTS uidx_egress_nodes_source_key ON egress_nodes(source_id, source_key)",
 	"CREATE INDEX IF NOT EXISTS idx_egress_sources_scope_name ON egress_subscription_sources(scope, LOWER(name), id)",
 	"CREATE INDEX IF NOT EXISTS idx_audits_created_id ON request_audits(created_at DESC, id DESC)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS idx_audits_event_id ON request_audits(event_id) WHERE event_id <> ''",
@@ -143,6 +146,11 @@ func (d *Database) initializeSchema(ctx context.Context) error {
 		if err := db.Where("scope = ?", "all").Delete(&egressNodeModel{}).Error; err != nil {
 			return fmt.Errorf("清理旧版所有域出口节点: %w", err)
 		}
+	}
+	// AutoMigrate 会补上订阅节点唯一索引。历史库可能已经有重复行，必须先合并，
+	// 否则索引创建失败，整个进程无法启动。
+	if err := d.dedupeEgressSubscriptionNodes(ctx); err != nil {
+		return fmt.Errorf("合并重复的订阅代理节点: %w", err)
 	}
 	autoMigrate := func() error {
 		return d.db.WithContext(ctx).AutoMigrate(schemaModels...)
@@ -232,6 +240,9 @@ func (d *Database) initializeSchema(ctx context.Context) error {
 		if err := db.Exec(statement).Error; err != nil {
 			return fmt.Errorf("初始化数据库索引: %w", err)
 		}
+	}
+	if err := d.deleteUnboundRemovedSubscriptionNodes(ctx); err != nil {
+		return fmt.Errorf("清理已移除的订阅代理节点: %w", err)
 	}
 	if err := d.ensureCanonicalModelPublicIDs(ctx); err != nil {
 		return fmt.Errorf("迁移模型 Provider 命名空间: %w", err)
