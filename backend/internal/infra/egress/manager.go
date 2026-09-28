@@ -173,6 +173,7 @@ type Manager struct {
 	newBuildClient         func(string, time.Duration) (requestClient, error)
 	newBuildEnvClient      func(time.Duration) (requestClient, error)
 	newBrowserClient       func(string, string) (*browserClient, error)
+	exitCountryLookup      func(context.Context, string) string
 }
 
 type clearanceState struct {
@@ -546,7 +547,12 @@ func (m *Manager) ProbeEgressNode(ctx context.Context, node domain.Node) (domain
 	} else if result.IPv6.Status == domain.ProbeStatusHealthy {
 		result.Status, result.ExitIP = domain.ProbeStatusHealthy, result.IPv6.ExitIP
 	}
-	result.Country = probeCountry(result)
+	observed := probeCountry(result)
+	if strings.TrimSpace(node.Location) == "" {
+		result.Country = mergeObservedCountry(ctx, result.ExitIP, observed)
+	} else {
+		result.Country = observed
+	}
 	if result.Status == domain.ProbeStatusHealthy {
 		return result, nil
 	}

@@ -134,6 +134,7 @@ type Service struct {
 	assignmentRunning           bool
 	autoAssignMaxNodeShare      float64
 	autoAssignMaxMigrationShare float64
+	locationLookupCursor        uint64
 }
 
 // QualityLeaseRepository is optional and deliberately separate from account

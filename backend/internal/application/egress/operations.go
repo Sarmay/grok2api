@@ -288,6 +288,12 @@ type emptyLocationWriter interface {
 	SetEgressNodeLocationIfEmpty(context.Context, uint64, string) error
 }
 
+type exitCountryLookup interface {
+	LookupExitCountry(context.Context, string) string
+}
+
+const emptyLocationLookupBudget = 8
+
 // backfillEmptyLocations recovers a region from the stored node name and proxy
 // host when subscription import left the location blank.
 func (s *Service) backfillEmptyLocations(ctx context.Context) error {
@@ -302,7 +308,20 @@ func (s *Service) backfillEmptyLocations(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, node := range nodes {
+	s.mu.Lock()
+	cursor := s.locationLookupCursor
+	s.mu.Unlock()
+	start := 0
+	for index, node := range nodes {
+		if node.ID > cursor {
+			start = index
+			break
+		}
+	}
+	rotated := append(append([]domain.Node(nil), nodes[start:]...), nodes[:start]...)
+	lookups := 0
+	var lastLookup uint64
+	for _, node := range rotated {
 		if strings.TrimSpace(node.Location) != "" || strings.TrimSpace(node.EncryptedProxyURL) == "" {
 			continue
 		}
@@ -311,6 +330,11 @@ func (s *Service) backfillEmptyLocations(ctx context.Context) error {
 			continue
 		}
 		code := detectProxyLocation(node.Name, proxyServerHost(proxyURL))
+		if code == "" && strings.TrimSpace(node.ExitIP) != "" && lookups < emptyLocationLookupBudget {
+			lookups++
+			lastLookup = node.ID
+			code = s.lookupStoredExitCountry(ctx, node.ExitIP)
+		}
 		if code == "" {
 			continue
 		}
@@ -318,7 +342,20 @@ func (s *Service) backfillEmptyLocations(ctx context.Context) error {
 			return err
 		}
 	}
+	if lastLookup != 0 {
+		s.mu.Lock()
+		s.locationLookupCursor = lastLookup
+		s.mu.Unlock()
+	}
 	return nil
+}
+
+func (s *Service) lookupStoredExitCountry(ctx context.Context, ip string) string {
+	lookup, ok := s.nodeProber().(exitCountryLookup)
+	if !ok {
+		return ""
+	}
+	return lookup.LookupExitCountry(ctx, ip)
 }
 
 func (s *Service) TestNode(ctx context.Context, id uint64) (domain.ProbeResult, error) {
