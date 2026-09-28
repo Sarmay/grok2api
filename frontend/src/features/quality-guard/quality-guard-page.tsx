@@ -24,6 +24,7 @@ import { ProbeProfilesPanel } from "@/features/quality-guard/probe-profiles-pane
 import { getQualityGuardStatus, runQualityTest, updateQualityGuardPolicy, type QualityGuardEvent, type QualityGuardNodeState, type QualityGuardPolicy, type QualityGuardStatistics, type QualityGuardStatus, type QualityTestResult } from "@/features/quality-guard/quality-guard-api";
 import { createEgressNode, deleteEgressNodes, listEgressNodes, updateEgressNode, updateEgressNodesEnabled, type EgressNodeDTO, type EgressNodeInput } from "@/features/settings/settings-api";
 import { ErrorState, TableLoadingRow } from "@/shared/components/data-state";
+import { TokenAmount } from "@/shared/components/token-amount";
 import { DataTableFilters } from "@/shared/components/data-table-filters";
 import { PageHeader } from "@/shared/components/page-header";
 import { Pagination } from "@/shared/components/pagination";
@@ -349,7 +350,7 @@ function StatisticsPanel({ statistics, locale }: { statistics: QualityGuardStati
     { icon: BarChart3, label: t("qualityGuard.statisticsChecks"), value: formatCount(checks, locale), detail: t("qualityGuard.statisticsChecksHelp") },
     { icon: Bot, label: t("qualityGuard.statisticsActive"), value: formatCount(statistics.active.total, locale), detail: t("qualityGuard.statisticsActiveDetail", { healthy: formatCount(statistics.active.healthy, locale), errors: formatCount(statistics.active.errors, locale) }) },
     { icon: Eye, label: t("qualityGuard.statisticsPassive"), value: formatCount(statistics.passive.total, locale), detail: t("qualityGuard.statisticsPassiveDetail", { healthy: formatCount(statistics.passive.healthy, locale) }) },
-    { icon: Coins, label: t("qualityGuard.statisticsTokens"), value: formatCount(statistics.active.output_tokens, locale), detail: t("qualityGuard.statisticsTokensHelp") },
+    { icon: Coins, label: t("qualityGuard.statisticsTokens"), value: <TokenAmount value={statistics.active.output_tokens} locale={locale} />, detail: t("qualityGuard.statisticsTokensHelp") },
     { icon: AlertTriangle, label: t("qualityGuard.statisticsAnomalies"), value: formatCount(anomalies, locale), detail: t("qualityGuard.statisticsAnomalyDetail", { soft: formatCount(statistics.active.soft + statistics.passive.soft, locale), hard: formatCount(statistics.active.hard + statistics.passive.hard, locale) }) },
     { icon: Shield, label: t("qualityGuard.statisticsQuarantines"), value: formatCount(statistics.actions.quarantined, locale), detail: t("qualityGuard.statisticsSuppressedActionDetail", { restored: formatCount(statistics.actions.restored, locale), suppressed: formatCount(statistics.actions.suppressed, locale) }) },
   ];
@@ -359,7 +360,7 @@ function StatisticsPanel({ statistics, locale }: { statistics: QualityGuardStati
       <p className="mt-1 text-xs text-muted-foreground">{t("qualityGuard.statisticsSince", { time: formatTime(statistics.started_at, locale) })}</p>
     </div>
     <div className="grid border-t sm:grid-cols-2 xl:grid-cols-3">
-      {items.map(({ icon: Icon, label, value, detail }) => <div key={label} className="flex min-h-24 gap-3 border-b p-4 last:border-b-0 sm:[&:nth-child(odd)]:border-r sm:[&:nth-last-child(-n+2)]:border-b-0 xl:border-r xl:[&:nth-child(3n)]:border-r-0 xl:[&:nth-last-child(-n+3)]:border-b-0">
+      {items.map(({ icon: Icon, label, value, detail }: { icon: typeof BarChart3; label: string; value: ReactNode; detail: string }) => <div key={label} className="flex min-h-24 gap-3 border-b p-4 last:border-b-0 sm:[&:nth-child(odd)]:border-r sm:[&:nth-last-child(-n+2)]:border-b-0 xl:border-r xl:[&:nth-child(3n)]:border-r-0 xl:[&:nth-last-child(-n+3)]:border-b-0">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground"><Icon className="size-4" /></span>
         <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-medium tabular-nums">{value}</p><p className="mt-1 truncate text-[11px] text-muted-foreground" title={detail}>{detail}</p></div>
       </div>)}

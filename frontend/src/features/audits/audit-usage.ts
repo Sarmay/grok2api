@@ -31,6 +31,7 @@ export type AuditUsageItem = {
   key: "mediaInput" | "mediaOutput" | "input" | "output" | "cached" | "reasoning";
   label: string;
   value: string;
+  exactValue?: string;
 };
 
 export type AuditUsageView = {
@@ -81,13 +82,18 @@ function mediaItems(audit: AuditUsageInput, labels: AuditUsageLabels): AuditUsag
   return undefined;
 }
 
-function tokenItems(audit: AuditUsageInput, formatNumber: (value: number) => string, labels: AuditUsageLabels): AuditUsageItem[] {
+function tokenItems(audit: AuditUsageInput, formatNumber: (value: number) => string, labels: AuditUsageLabels, formatExactNumber?: (value: number) => string): AuditUsageItem[] {
   const available = auditTokenUsageAvailable(audit);
+  const item = (key: AuditUsageItem["key"], label: string, value: number): AuditUsageItem => {
+    const display = formatAuditTokenValue(value, available, formatNumber);
+    const exact = available && formatExactNumber ? formatExactNumber(value) : undefined;
+    return { key, label, value: display, exactValue: exact && exact !== display ? exact : undefined };
+  };
   return [
-    { key: "input", label: labels.input, value: formatAuditTokenValue(audit.inputTokens, available, formatNumber) },
-    { key: "output", label: labels.output, value: formatAuditTokenValue(audit.outputTokens, available, formatNumber) },
-    { key: "cached", label: labels.cached, value: formatAuditTokenValue(audit.cachedInputTokens, available, formatNumber) },
-    { key: "reasoning", label: labels.reasoning, value: formatAuditTokenValue(audit.reasoningTokens, available, formatNumber) },
+    item("input", labels.input, audit.inputTokens),
+    item("output", labels.output, audit.outputTokens),
+    item("cached", labels.cached, audit.cachedInputTokens),
+    item("reasoning", labels.reasoning, audit.reasoningTokens),
   ];
 }
 
@@ -95,6 +101,7 @@ export function buildAuditUsageView(
   audit: AuditUsageInput,
   formatNumber: (value: number) => string,
   labels: AuditUsageLabels,
+  formatExactNumber?: (value: number) => string,
 ): AuditUsageView {
   if (audit.operation === "compaction" && audit.totalTokens === 0) {
     return { mode: "compaction" };
@@ -110,6 +117,6 @@ export function buildAuditUsageView(
     // retaining token details whenever the upstream actually provides them.
     tokenItems: MEDIA_OPERATIONS.has(audit.operation) && !auditTokenUsageAvailable(audit)
       ? undefined
-      : tokenItems(audit, formatNumber, labels),
+      : tokenItems(audit, formatNumber, labels, formatExactNumber),
   };
 }

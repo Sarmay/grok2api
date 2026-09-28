@@ -19,7 +19,7 @@ import { getRequestAudit, type AuditAttemptDTO, type AuditDTO } from "@/features
 import { CopyButton } from "@/shared/components/copy-button";
 import { ErrorState, LoadingState } from "@/shared/components/data-state";
 import { cn } from "@/shared/lib/cn";
-import { formatDateTime, formatNumber } from "@/shared/lib/format";
+import { formatCompactTokens, formatDateTime, formatNumber } from "@/shared/lib/format";
 import { formatUSDTicksWithEstimate } from "@/shared/lib/usd";
 
 const AUDIT_DETAIL_CACHE_TIME_MS = 60_000;
@@ -151,18 +151,17 @@ function RequestOverviewPanel({ audit }: { audit: AuditDTO }) {
 
   const tokenSummary = useMemo(() => {
     if (!audit.totalTokens && !audit.inputTokens && !audit.outputTokens) return null;
-    const parts = [
-      `${t("audits.input")} ${formatNumber(audit.inputTokens, i18n.language)}`,
-    ];
-    if (audit.cachedInputTokens > 0) {
-      parts.push(`(${t("audits.cached")} ${formatNumber(audit.cachedInputTokens, i18n.language)})`);
-    }
-    parts.push(`· ${t("audits.output")} ${formatNumber(audit.outputTokens, i18n.language)}`);
-    if (audit.reasoningTokens > 0) {
-      parts.push(`(${t("audits.reasoning")} ${formatNumber(audit.reasoningTokens, i18n.language)})`);
-    }
-    parts.push(`· ${t("audits.total")} ${formatNumber(audit.totalTokens, i18n.language)}`);
-    return parts.join(" ");
+    const summarize = (format: (value: number) => string) => {
+      const parts = [`${t("audits.input")} ${format(audit.inputTokens)}`];
+      if (audit.cachedInputTokens > 0) parts.push(`(${t("audits.cached")} ${format(audit.cachedInputTokens)})`);
+      parts.push(`· ${t("audits.output")} ${format(audit.outputTokens)}`);
+      if (audit.reasoningTokens > 0) parts.push(`(${t("audits.reasoning")} ${format(audit.reasoningTokens)})`);
+      parts.push(`· ${t("audits.total")} ${format(audit.totalTokens)}`);
+      return parts.join(" ");
+    };
+    const compact = summarize((value) => formatCompactTokens(value, i18n.language));
+    const exact = summarize((value) => formatNumber(value, i18n.language, 0));
+    return { compact, exact: exact === compact ? undefined : exact };
   }, [audit, t, i18n.language]);
 
   const costDisplay = useMemo(() => {
@@ -228,7 +227,8 @@ function RequestOverviewPanel({ audit }: { audit: AuditDTO }) {
         <OverviewField
           className="sm:col-span-2"
           label={t("audits.tokenUsage")}
-          value={tokenSummary}
+          value={tokenSummary.compact}
+          title={tokenSummary.exact}
         />
       ) : null}
       {audit.mediaInputImages > 0 || audit.mediaOutputImages > 0 || audit.mediaOutputSeconds > 0 ? (
@@ -458,12 +458,12 @@ function AttemptOverview({ attempt }: { attempt: AuditAttemptDTO }) {
   );
 }
 
-function OverviewField({ className, label, value, copy }: { className?: string; label: string; value: string; copy?: boolean }) {
+function OverviewField({ className, label, value, title, copy }: { className?: string; label: string; value: string; title?: string; copy?: boolean }) {
   return (
     <div className={cn("flex min-w-0 items-start gap-3 rounded-lg bg-muted/25 p-3", className)}>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] text-muted-foreground">{label}</p>
-        <p className="mt-0.5 break-all text-xs font-medium" title={value}>
+        <p className="mt-0.5 break-all text-xs font-medium" title={title ?? value}>
           {value}
         </p>
       </div>

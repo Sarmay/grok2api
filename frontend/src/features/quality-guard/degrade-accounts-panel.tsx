@@ -16,7 +16,7 @@ import { EmptyState, ErrorState } from "@/shared/components/data-state";
 import { Pagination } from "@/shared/components/pagination";
 import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import { cn } from "@/shared/lib/cn";
-import { formatCompactDateTime } from "@/shared/lib/format";
+import { formatCompactDateTime, formatCompactTokens, formatNumber } from "@/shared/lib/format";
 
 const MUTE_TOAST_ID = "quality-guard-degrade-mute";
 
@@ -207,7 +207,7 @@ export function DegradeAccountsPanel({ softTPS, hardTPS, failClosed, minGenMs }:
           {data.events.length === 0 ? <EmptyState message={t("qualityGuard.degrade.noEvents")} /> : data.events.map((event) => (
             <div key={event.id} className="grid grid-cols-[7.5rem_minmax(0,1fr)_auto] gap-3 border-b px-4 py-2 last:border-b-0 sm:px-5">
               <div className="font-mono text-[11px] text-muted-foreground">{formatCompactDateTime(event.createdAt, i18n.language)}</div>
-              <div className="truncate text-xs">#{event.accountId ?? "-"} {event.accountName} · {event.nodeName} · out {event.outputTokens} · {event.requestId}</div>
+              <div className="truncate text-xs">#{event.accountId ?? "-"} {event.accountName} · {event.nodeName} · out <span title={formatNumber(event.outputTokens, i18n.language, 0)}>{formatCompactTokens(event.outputTokens, i18n.language)}</span> · {event.requestId}</div>
               <div className="flex items-center gap-2">{classBadge(event.class)}<span className="font-mono text-xs tabular-nums">{event.tps}</span></div>
             </div>
           ))}

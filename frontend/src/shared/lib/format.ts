@@ -53,6 +53,44 @@ export function formatNumber(value: number, locale: string, maximumFractionDigit
   return formatter.format(value);
 }
 
+const tokenUnits = [
+  { threshold: 1_000_000_000_000, suffix: "t" },
+  { threshold: 1_000_000_000, suffix: "b" },
+  { threshold: 1_000_000, suffix: "m" },
+  { threshold: 1_000, suffix: "k" },
+] as const;
+
+/** Compact token counts as k / m / b / t. Values under 1,000 stay exact. */
+export function formatCompactTokens(value: number, locale: string): string {
+  if (!Number.isFinite(value)) return formatNumber(0, locale, 0);
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  const unit = tokenUnits.find((candidate) => absolute >= candidate.threshold);
+  if (!unit) return formatNumber(value, locale, 0);
+  const digits = tokenFractionDigits(absolute / unit.threshold);
+  let scaled = roundTo(absolute / unit.threshold, digits);
+  let suffix: string = unit.suffix;
+  if (scaled >= 1_000) {
+    const promoted = tokenUnits.find((candidate) => candidate.threshold === unit.threshold * 1_000);
+    if (promoted) {
+      scaled = roundTo(scaled / 1_000, tokenFractionDigits(scaled / 1_000));
+      suffix = promoted.suffix;
+    }
+  }
+  return `${sign}${formatNumber(scaled, locale, tokenFractionDigits(scaled))}${suffix}`;
+}
+
+function tokenFractionDigits(scaled: number): number {
+  if (scaled >= 100) return 0;
+  if (scaled >= 10) return 1;
+  return 2;
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
 /** Uses M for large token counts while keeping small values readable. */
 export function formatTokenMillions(value: number, locale: string): string {
   const normalized = Number.isFinite(value) ? Math.max(0, value) : 0;

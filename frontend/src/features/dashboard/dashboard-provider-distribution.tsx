@@ -7,7 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { DashboardDTO } from "@/features/dashboard/dashboard-api";
 import { DashboardPanel } from "@/features/dashboard/dashboard-panel";
 import { cn } from "@/shared/lib/cn";
-import { formatNumber } from "@/shared/lib/format";
+import { formatCompactTokens, formatNumber } from "@/shared/lib/format";
 
 type DashboardProviderDistributionProps = {
   dashboard?: DashboardDTO;
@@ -92,7 +92,7 @@ export function DashboardProviderDistribution({ dashboard, locale, loading }: Da
                     <span className={cn("size-2 shrink-0 rounded-full", provider.dot)} />
                     <div className="min-w-0">
                       <p className="truncate text-xs">{providerLabel(provider.key, t)}</p>
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{t("dashboard.providerDetail", { rate: formatNumber(successRate, locale, 1), tokens: formatNumber(provider.tokens, locale) })}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={formatNumber(provider.tokens, locale, 0)}>{t("dashboard.providerDetail", { rate: formatNumber(successRate, locale, 1), tokens: formatCompactTokens(provider.tokens, locale) })}</p>
                     </div>
                   </div>
                   <div className="shrink-0 text-right">

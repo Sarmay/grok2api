@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowDown, ArrowUp, BrainCircuit, CircleCheck, CircleDollarSign, CornerDownRight, Database, Globe2, Info, Minimize2, RefreshCw, Search, WholeWord, type LucideIcon } from "lucide-react";
+import { type ReactNode } from "react";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,7 +25,8 @@ import { SortableTableHead } from "@/shared/components/sortable-table-head";
 import { VirtualTableBody } from "@/shared/components/virtual-table-body";
 import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import { cn } from "@/shared/lib/cn";
-import { formatCompactDateTime, formatDateTime, formatDuration, formatNumber } from "@/shared/lib/format";
+import { TokenAmount } from "@/shared/components/token-amount";
+import { formatCompactDateTime, formatCompactTokens, formatDateTime, formatDuration, formatNumber } from "@/shared/lib/format";
 import { toPeriodValue, type PeriodDays } from "@/shared/lib/period";
 import { nextTableSort, type SortOrder, type TableSort } from "@/shared/lib/table-sort";
 import { formatUSDTicks, usdTicksToValue } from "@/shared/lib/usd";
@@ -195,7 +197,7 @@ export function RequestAuditsPage() {
       <section className="space-y-2" aria-label={t("audits.usageSummary")}>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <AuditMetric icon={Activity} loading={summaryLoading} label={t("audits.totalRequests")} value={formatNumber(summary?.usage.requests ?? 0, i18n.language, 0)} detail={t("audits.requestBreakdown", { success: formatNumber(summary?.usage.successfulRequests ?? 0, i18n.language, 0), failed: formatNumber(summary?.usage.failedRequests ?? 0, i18n.language, 0) })} />
-          <AuditMetric icon={WholeWord} loading={summaryLoading} label={t("audits.totalTokens")} value={formatNumber(summary?.usage.totalTokens ?? 0, i18n.language, 0)} detail={t("audits.tokenEfficiency", { cacheRate: formatNumber(cacheRate, i18n.language, 1) })} />
+          <AuditMetric icon={WholeWord} loading={summaryLoading} label={t("audits.totalTokens")} value={<TokenAmount value={summary?.usage.totalTokens ?? 0} locale={i18n.language} />} detail={t("audits.tokenEfficiency", { cacheRate: formatNumber(cacheRate, i18n.language, 1) })} />
           <AuditMetric icon={CircleCheck} loading={summaryLoading} label={t("audits.successRate")} value={`${formatNumber(summary?.usage.successRate ?? 0, i18n.language, 1)}%`} detail={t("audits.averageDuration", { duration: formatDuration(summary?.usage.averageDurationMs ?? 0) })} />
           <AuditMetric
             icon={CircleDollarSign}
@@ -208,10 +210,10 @@ export function RequestAuditsPage() {
           />
         </div>
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-          <AuditTokenMetric icon={ArrowUp} loading={summaryLoading} label={t("audits.input")} value={formatNumber(summary?.usage.inputTokens ?? 0, i18n.language, 0)} />
-          <AuditTokenMetric icon={ArrowDown} loading={summaryLoading} label={t("audits.output")} value={formatNumber(summary?.usage.outputTokens ?? 0, i18n.language, 0)} />
-          <AuditTokenMetric icon={Database} loading={summaryLoading} label={t("audits.cached")} value={formatNumber(summary?.usage.cachedInputTokens ?? 0, i18n.language, 0)} />
-          <AuditTokenMetric icon={BrainCircuit} loading={summaryLoading} label={t("audits.reasoning")} value={formatNumber(summary?.usage.reasoningTokens ?? 0, i18n.language, 0)} />
+          <AuditTokenMetric icon={ArrowUp} loading={summaryLoading} label={t("audits.input")} value={summary?.usage.inputTokens ?? 0} locale={i18n.language} />
+          <AuditTokenMetric icon={ArrowDown} loading={summaryLoading} label={t("audits.output")} value={summary?.usage.outputTokens ?? 0} locale={i18n.language} />
+          <AuditTokenMetric icon={Database} loading={summaryLoading} label={t("audits.cached")} value={summary?.usage.cachedInputTokens ?? 0} locale={i18n.language} />
+          <AuditTokenMetric icon={BrainCircuit} loading={summaryLoading} label={t("audits.reasoning")} value={summary?.usage.reasoningTokens ?? 0} locale={i18n.language} />
         </div>
       </section>
 
@@ -493,7 +495,7 @@ function BillingFormula({ component, locale }: { component: AuditBillingComponen
   );
 }
 
-function AuditMetric({ icon: Icon, label, value, detail, tooltip, fullValue, loading }: { icon: LucideIcon; label: string; value: string; detail?: string; tooltip?: string; fullValue?: string; loading: boolean }) {
+function AuditMetric({ icon: Icon, label, value, detail, tooltip, fullValue, loading }: { icon: LucideIcon; label: string; value: ReactNode; detail?: string; tooltip?: string; fullValue?: string; loading: boolean }) {
   const { t } = useTranslation();
   return (
     <article className="min-h-28 rounded-lg bg-card p-4" aria-busy={loading}>
@@ -522,11 +524,11 @@ function AuditMetric({ icon: Icon, label, value, detail, tooltip, fullValue, loa
   );
 }
 
-function AuditTokenMetric({ icon: Icon, label, value, loading }: { icon: LucideIcon; label: string; value: string; loading: boolean }) {
+function AuditTokenMetric({ icon: Icon, label, value, locale, loading }: { icon: LucideIcon; label: string; value: number; locale: string; loading: boolean }) {
   return (
     <div className="flex min-h-11 min-w-0 items-center justify-between gap-3 rounded-lg bg-muted/45 px-4 py-2">
       <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><Icon className="size-3.5 shrink-0" />{label}</span>
-      <span className="flex min-h-5 min-w-8 items-center justify-end truncate text-sm font-medium tabular-nums" title={loading ? undefined : value}>{loading ? <Spinner className="size-3.5" /> : value}</span>
+      <span className="flex min-h-5 min-w-8 items-center justify-end truncate text-sm font-medium">{loading ? <Spinner className="size-3.5" /> : <TokenAmount value={value} locale={locale} />}</span>
     </div>
   );
 }
@@ -586,7 +588,7 @@ function RouteDetailRow({ label, value, breakAll = false }: { label: string; val
 
 function UsageDetails({ audit, locale }: { audit: AuditDTO; locale: string }) {
   const { t } = useTranslation();
-  const view = buildAuditUsageView(audit, (value) => formatNumber(value, locale), {
+  const view = buildAuditUsageView(audit, (value) => formatCompactTokens(value, locale), {
     input: t("audits.input"),
     output: t("audits.output"),
     cached: t("audits.cached"),
@@ -595,7 +597,7 @@ function UsageDetails({ audit, locale }: { audit: AuditDTO; locale: string }) {
     mediaOutput: t("audits.mediaOutput"),
     imageCount: (count) => t("audits.imageCount", { count }),
     secondsCount: (count) => t("audits.secondsCount", { count }),
-  });
+  }, (value) => formatNumber(value, locale, 0));
   if (view.mode === "compaction") {
     return (
       <div className="flex h-[52px] w-full items-center gap-2 rounded-md bg-muted/45 px-2.5 text-[11px]">
@@ -633,6 +635,7 @@ function UsageDetails({ audit, locale }: { audit: AuditDTO; locale: string }) {
               key={item.key}
               label={item.label}
               value={item.value}
+              exactValue={item.exactValue}
               reasoningEffort={item.key === "reasoning" ? audit.reasoningEffort : undefined}
             />
           ))}
@@ -642,9 +645,10 @@ function UsageDetails({ audit, locale }: { audit: AuditDTO; locale: string }) {
   );
 }
 
-function UsageMetric({ label, value, reasoningEffort }: {
+function UsageMetric({ label, value, exactValue, reasoningEffort }: {
   label: string;
   value: string;
+  exactValue?: string;
   reasoningEffort?: AuditDTO["reasoningEffort"];
 }) {
   const { t } = useTranslation();
@@ -659,7 +663,7 @@ function UsageMetric({ label, value, reasoningEffort }: {
           </span>
         ) : null}
       </span>
-      <span className="truncate font-medium tabular-nums" title={value}>{value}</span>
+      <span className="truncate font-medium tabular-nums" title={exactValue ?? value}>{value}</span>
     </div>
   );
 }

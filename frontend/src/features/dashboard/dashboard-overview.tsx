@@ -1,4 +1,5 @@
 import { Activity, CircleDollarSign, Gauge, UsersRound, WholeWord, type LucideIcon } from "lucide-react";
+import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pie, PieChart } from "recharts";
 
@@ -7,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { DashboardDTO } from "@/features/dashboard/dashboard-api";
 import { formatUSD, formatUSDValue } from "@/features/dashboard/dashboard-format";
 import { DashboardPanel } from "@/features/dashboard/dashboard-panel";
+import { TokenAmount } from "@/shared/components/token-amount";
 import { cn } from "@/shared/lib/cn";
 import { formatDuration, formatNumber } from "@/shared/lib/format";
 import { usdTicksToValue } from "@/shared/lib/usd";
@@ -49,7 +51,7 @@ export function DashboardOverview({ dashboard, locale, loading }: DashboardDataP
         <DashboardMetric
           icon={WholeWord}
           label={t("dashboard.tokens")}
-          value={formatNumber(usage?.tokens ?? 0, locale)}
+          value={<TokenAmount value={usage?.tokens ?? 0} locale={locale} />}
           detail={t("dashboard.tokenEfficiency", { rate: formatNumber(cacheHitRate, locale, 1) })}
           loading={loading}
         />
@@ -161,7 +163,7 @@ export function DashboardResources({ dashboard, locale, loading }: DashboardData
   );
 }
 
-function DashboardMetric({ icon: Icon, label, value, detail, loading }: { icon: LucideIcon; label: string; value: string; detail: string; loading: boolean }) {
+function DashboardMetric({ icon: Icon, label, value, detail, loading }: { icon: LucideIcon; label: string; value: ReactNode; detail: string; loading: boolean }) {
   return (
     <article className="min-h-28 rounded-lg bg-card p-4" aria-busy={loading}>
       <header className="flex min-h-5 items-center justify-between gap-3">

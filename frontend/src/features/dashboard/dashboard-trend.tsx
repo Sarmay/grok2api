@@ -9,7 +9,7 @@ import { formatCompactNumber, formatCompactUSD, formatUSDValue } from "@/feature
 import { DashboardPanel } from "@/features/dashboard/dashboard-panel";
 import { EmptyState } from "@/shared/components/data-state";
 import { cn } from "@/shared/lib/cn";
-import { formatNumber } from "@/shared/lib/format";
+import { formatCompactTokens, formatNumber } from "@/shared/lib/format";
 import { usdTicksToValue } from "@/shared/lib/usd";
 
 type DashboardTrendProps = {
@@ -96,9 +96,9 @@ export function DashboardTrend({ dashboard, locale, loading }: DashboardTrendPro
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                width={axisSides.tokens ? 48 : 0}
+                width={axisSides.tokens ? 56 : 0}
                 allowDecimals={false}
-                tickFormatter={(value) => formatCompactNumber(Number(value), locale)}
+                tickFormatter={(value) => formatCompactTokens(Number(value), locale)}
               />
               <YAxis
                 yAxisId="billing"
