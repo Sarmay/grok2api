@@ -401,7 +401,7 @@ func TestProbeEgressNodeUsesConfiguredCloudflareEndpoints(t *testing.T) {
 			if request.URL.Hostname() == "2606:4700:4700::1111" {
 				exitIP = "2001:db8::11"
 			}
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("fl=test\nip=" + exitIP + "\ncolo=SJC\n"))}, nil
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("fl=test\nip=" + exitIP + "\nloc=US\ncolo=SJC\n"))}, nil
 		}}, nil
 	}
 
@@ -409,7 +409,7 @@ func TestProbeEgressNodeUsesConfiguredCloudflareEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Provider != domain.ProbeProviderCloudflare || result.IPv4.ExitIP != "198.51.100.11" || result.IPv6.ExitIP != "2001:db8::11" {
+	if result.Provider != domain.ProbeProviderCloudflare || result.IPv4.ExitIP != "198.51.100.11" || result.IPv6.ExitIP != "2001:db8::11" || result.Country != "US" || result.IPv4.Country != "US" {
 		t.Fatalf("Cloudflare probe result = %#v", result)
 	}
 	for _, endpoint := range []string{cloudflareIPv4ProbeEndpoint, cloudflareIPv6ProbeEndpoint} {
@@ -427,13 +427,19 @@ func TestProbeEndpointsDefaultToCloudflare(t *testing.T) {
 
 func TestDecodeProbeIPSupportsJSONAndCloudflareTrace(t *testing.T) {
 	for name, body := range map[string]string{
-		"json":             `{"ip":"203.0.113.12"}`,
-		"cloudflare trace": "fl=test\nip=2001:db8::12\ncolo=SJC\n",
+		"json":             `{"ip":"203.0.113.12","country":"jp"}`,
+		"cloudflare trace": "fl=test\nip=2001:db8::12\nloc=GB\ncolo=SJC\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			value, err := decodeProbeIP([]byte(body))
+			value, country, err := decodeProbeIdentity([]byte(body))
 			if err != nil || (value != "203.0.113.12" && value != "2001:db8::12") {
-				t.Fatalf("decodeProbeIP() = %q, %v", value, err)
+				t.Fatalf("decodeProbeIdentity() = %q, %v", value, err)
+			}
+			if name == "json" && country != "jp" {
+				t.Fatalf("country = %q", country)
+			}
+			if name == "cloudflare trace" && country != "GB" {
+				t.Fatalf("country = %q", country)
 			}
 		})
 	}

@@ -309,17 +309,17 @@ export function EgressNodes({ title, clearanceMode }: { title: string; clearance
           footer={query.data && query.data.total > 0 ? <Pagination page={query.data.page} pageSize={query.data.pageSize} total={query.data.total} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /> : undefined}
         >
           {query.isError ? <ErrorState message={query.error.message} onRetry={() => void query.refetch()} /> : null}
-          {!query.isError ? <Table viewportRows={10} rowHeight={56} className="min-w-[980px] table-fixed">
-          <TableHeader><TableRow className="hover:bg-transparent"><TableHead className="w-10 px-2"><Checkbox checked={allPageSelected ? true : selectedOnPage.length > 0 ? "indeterminate" : false} disabled={nodes.length === 0} onCheckedChange={(checked) => togglePage(checked === true)} aria-label={t("common.selectPage")} /></TableHead><SortableTableHead className="w-18" field="name" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("settings.egress.name")}</SortableTableHead><SortableTableHead className="w-24" field="scope" sortBy={sort.field} sortOrder={sort.order} align="center" onSort={changeSort}>{t("settings.egress.scope")}</SortableTableHead><SortableTableHead className="w-44" field="proxy" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("settings.egress.proxy")}</SortableTableHead><SortableTableHead className="w-28" field="clearance" sortBy={sort.field} sortOrder={sort.order} align="center" onSort={changeSort}>{t("settings.egress.clearance")}</SortableTableHead><TableHead className="w-28 text-center">{t("settings.egress.accounts")}</TableHead><SortableTableHead className="w-24" field="health" sortBy={sort.field} sortOrder={sort.order} initialOrder="desc" align="center" title={t("settings.egress.healthHelp")} onSort={changeSort}>{t("settings.egress.health")}</SortableTableHead><TableHead className="w-52"><div className="flex items-center justify-center gap-1"><span>{t("settings.egress.probe")}</span><Tooltip><TooltipTrigger asChild><button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label={t("settings.egress.probeHelp")}><CircleHelp className="size-3.5" /></button></TooltipTrigger><TooltipContent className="max-w-80">{t("settings.egress.probeHelp")}</TooltipContent></Tooltip></div></TableHead><TableActionHead /></TableRow></TableHeader>
+          {!query.isError ? <Table viewportRows={10} rowHeight={56} className="min-w-[1160px] table-fixed">
+          <TableHeader><TableRow className="hover:bg-transparent"><TableHead className="w-10 px-2"><Checkbox checked={allPageSelected ? true : selectedOnPage.length > 0 ? "indeterminate" : false} disabled={nodes.length === 0} onCheckedChange={(checked) => togglePage(checked === true)} aria-label={t("common.selectPage")} /></TableHead><SortableTableHead className="w-64 min-w-64" field="name" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("settings.egress.name")}</SortableTableHead><SortableTableHead className="w-24" field="scope" sortBy={sort.field} sortOrder={sort.order} align="center" onSort={changeSort}>{t("settings.egress.scope")}</SortableTableHead><SortableTableHead className="w-44" field="proxy" sortBy={sort.field} sortOrder={sort.order} onSort={changeSort}>{t("settings.egress.proxy")}</SortableTableHead><SortableTableHead className="w-28" field="clearance" sortBy={sort.field} sortOrder={sort.order} align="center" onSort={changeSort}>{t("settings.egress.clearance")}</SortableTableHead><TableHead className="w-28 text-center">{t("settings.egress.accounts")}</TableHead><SortableTableHead className="w-24" field="health" sortBy={sort.field} sortOrder={sort.order} initialOrder="desc" align="center" title={t("settings.egress.healthHelp")} onSort={changeSort}>{t("settings.egress.health")}</SortableTableHead><TableHead className="w-52"><div className="flex items-center justify-center gap-1"><span>{t("settings.egress.probe")}</span><Tooltip><TooltipTrigger asChild><button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label={t("settings.egress.probeHelp")}><CircleHelp className="size-3.5" /></button></TooltipTrigger><TooltipContent className="max-w-80">{t("settings.egress.probeHelp")}</TooltipContent></Tooltip></div></TableHead><TableActionHead /></TableRow></TableHeader>
           {query.isPending ? <TableBody><TableLoadingRow colSpan={9} /></TableBody> : null}
           {!query.isPending && nodes.length === 0 ? <TableBody><TableRow><TableCell colSpan={9} className="h-24 text-center text-xs text-muted-foreground">{hasActiveFilters ? t("settings.egress.noMatches") : t("settings.egress.directFallback")}</TableCell></TableRow></TableBody> : null}
           {!query.isPending && nodes.length > 0 ? <VirtualTableBody items={nodes} colSpan={9} rowHeight={56} renderRow={(node) => (
               <TableRow className="group h-14" key={node.id} data-state={selected.has(node.id) ? "selected" : undefined}>
                 <TableCell className="px-2"><Checkbox checked={selected.has(node.id)} onCheckedChange={(checked) => toggleNode(node, checked === true)} aria-label={t("common.selectItem", { name: node.name })} /></TableCell>
-                <TableCell>
+                <TableCell className="overflow-hidden">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className={cn("size-1.5 shrink-0 rounded-full", node.enabled ? "bg-emerald-500" : "bg-muted-foreground/35")} />
-                    <span className={cn("truncate text-xs font-medium", !node.enabled && "text-muted-foreground")} title={node.name}>{node.name}</span>
+                    <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", !node.enabled && "text-muted-foreground")} title={node.name}>{node.name}</span>
                     {node.location ? <LocationBadge code={node.location} /> : null}
                     {node.lastError ? <ErrorTooltip message={node.lastError} /> : null}
                   </div>
@@ -681,7 +681,16 @@ function HealthMeter({ value }: { value: number }) {
 function LocationBadge({ code }: { code: string }) {
   const { t, i18n } = useTranslation();
   const key = `settings.egress.location${code}`;
-  const label = i18n.exists(key) ? t(key) : code;
+  let label = code;
+  if (i18n.exists(key)) {
+    label = t(key);
+  } else {
+    try {
+      label = new Intl.DisplayNames([i18n.resolvedLanguage || i18n.language], { type: "region" }).of(code) || code;
+    } catch {
+      label = code;
+    }
+  }
   return <Badge variant="outline" className={cn("shrink-0 px-1.5 text-[10px]", code === "HK" && "border-amber-600/40 text-amber-700 dark:text-amber-300")}>{label}</Badge>;
 }
 

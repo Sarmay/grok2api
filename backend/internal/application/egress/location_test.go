@@ -25,6 +25,12 @@ func TestDetectProxyLocationFromLabelsAndHosts(t *testing.T) {
 		{label: "普通节点", host: "hk01.provider.net", want: "HK"},
 		{label: "", host: "jp-1.example.com", want: "JP"},
 		{label: "checkout relay", host: "edge.example.com", want: ""},
+		{label: "🇰🇷韩國", want: "KR"},
+		{label: "🇺🇸", want: "US"},
+		{label: "硅谷 01", want: "US"},
+		{label: "node", host: "80th.de3.example.com", want: "DE"},
+		{label: "", host: "a.80th.example.com", want: ""},
+		{label: "", host: "edge.hkt2.example.com", want: "HK"},
 	}
 	for _, test := range cases {
 		if got := detectProxyLocation(test.label, test.host); got != test.want {
@@ -49,6 +55,9 @@ func TestParseProxySubscriptionRecordsLocation(t *testing.T) {
 	if entries[0].Location != "HK" || entries[1].Location != "JP" || entries[2].Location != "SG" {
 		t.Fatalf("locations=%q %q %q", entries[0].Location, entries[1].Location, entries[2].Location)
 	}
+	if entries[0].Name != "香港 01" || entries[1].Name != "东京-01" || entries[2].Name != "" {
+		t.Fatalf("names=%q %q %q", entries[0].Name, entries[1].Name, entries[2].Name)
+	}
 	if strings.Contains(entries[1].ProxyURL, "#") || strings.Contains(entries[1].ProxyURL, "东京") {
 		t.Fatalf("remark leaked into proxy URL: %s", entries[1].ProxyURL)
 	}
@@ -72,6 +81,26 @@ proxies:
 	}
 	if entries[0].Location != "HK" || entries[1].Location != "JP" {
 		t.Fatalf("locations=%q %q", entries[0].Location, entries[1].Location)
+	}
+	if entries[0].Name != "香港 01" || entries[1].Name != "大阪 01" {
+		t.Fatalf("names=%q %q", entries[0].Name, entries[1].Name)
+	}
+}
+
+func TestParseClashFlowStyleKeepsProxyName(t *testing.T) {
+	content := "proxies:\n  - {name: \"[Vless] 东京 01\", type: http, server: example.com, port: 8080}\n"
+	entries, skipped, matched := parseClashSubscription(content)
+	if !matched || skipped != 0 || len(entries) != 1 {
+		t.Fatalf("entries=%#v skipped=%d matched=%v", entries, skipped, matched)
+	}
+	if entries[0].Name != "[Vless] 东京 01" || entries[0].Location != "JP" {
+		t.Fatalf("entry=%#v", entries[0])
+	}
+	if subscriptionNodeName(entries[0].Name, "source", 0) != "[Vless] 东京 01" {
+		t.Fatal("subscription node name dropped the proxy title")
+	}
+	if subscriptionNodeName("", "source", 0) != "source 001" {
+		t.Fatal("missing proxy title did not fall back to the source name")
 	}
 }
 

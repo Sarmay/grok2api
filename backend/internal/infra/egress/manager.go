@@ -546,6 +546,7 @@ func (m *Manager) ProbeEgressNode(ctx context.Context, node domain.Node) (domain
 	} else if result.IPv6.Status == domain.ProbeStatusHealthy {
 		result.Status, result.ExitIP = domain.ProbeStatusHealthy, result.IPv6.ExitIP
 	}
+	result.Country = probeCountry(result)
 	if result.Status == domain.ProbeStatusHealthy {
 		return result, nil
 	}
@@ -772,7 +773,7 @@ func (m *Manager) probeEgressEndpoint(ctx context.Context, target preparedEgress
 		return result, errors.New(result.Error)
 	}
 	stage = "decode_response"
-	exitIP, err := decodeProbeIP(body)
+	exitIP, country, err := decodeProbeIdentity(body)
 	if err != nil {
 		result.Error = "探测服务响应格式无效"
 		return result, err
@@ -789,25 +790,57 @@ func (m *Manager) probeEgressEndpoint(ctx context.Context, target preparedEgress
 	result.Status = domain.ProbeStatusHealthy
 	result.LatencyMS = max(1, int(time.Since(startedAt).Milliseconds()))
 	result.ExitIP = address.String()
+	result.Country = domain.NormalizeCountryCode(country)
 	result.Error = ""
 	stage = "complete"
 	return result, nil
 }
 
+func probeCountry(result domain.ProbeResult) string {
+	if result.IPv4.Status == domain.ProbeStatusHealthy && result.IPv4.Country != "" {
+		return result.IPv4.Country
+	}
+	if result.IPv6.Status == domain.ProbeStatusHealthy && result.IPv6.Country != "" {
+		return result.IPv6.Country
+	}
+	return ""
+}
+
 func decodeProbeIP(body []byte) (string, error) {
+	ip, _, err := decodeProbeIdentity(body)
+	return ip, err
+}
+
+func decodeProbeIdentity(body []byte) (string, string, error) {
 	var payload struct {
-		IP string `json:"ip"`
+		IP      string `json:"ip"`
+		Country string `json:"country"`
 	}
 	if json.Unmarshal(body, &payload) == nil && strings.TrimSpace(payload.IP) != "" {
-		return strings.TrimSpace(payload.IP), nil
+		return strings.TrimSpace(payload.IP), payload.Country, nil
 	}
+	ip, country := "", ""
 	for line := range strings.SplitSeq(string(body), "\n") {
 		key, value, found := strings.Cut(strings.TrimSpace(line), "=")
-		if found && key == "ip" && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value), nil
+		if !found {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		switch key {
+		case "ip":
+			if value != "" {
+				ip = value
+			}
+		case "loc":
+			if value != "" {
+				country = value
+			}
 		}
 	}
-	return "", errors.New("probe response does not contain an IP address")
+	if ip == "" {
+		return "", "", errors.New("probe response does not contain an IP address")
+	}
+	return ip, country, nil
 }
 
 func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity string, allowDirect bool, encryptedCredentialCookies string, boundNodeID uint64) (*Lease, bool, error) {

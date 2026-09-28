@@ -418,6 +418,9 @@ func (s *Service) RunMaintenance(ctx context.Context) error {
 		return err
 	}
 	var resultErr error
+	if backfillErr := s.backfillEmptyLocations(ctx); backfillErr != nil {
+		resultErr = errors.Join(resultErr, backfillErr)
+	}
 	sources, err := operations.ListDueEgressSources(ctx, time.Now().UTC(), 3)
 	if err != nil {
 		resultErr = errors.Join(resultErr, err)

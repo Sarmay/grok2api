@@ -290,6 +290,9 @@ func (r *EgressRepository) UpdateEgressNodeProbe(ctx context.Context, id uint64,
 		"ipv6_probe_latency_ms": value.IPv6.LatencyMS, "ipv6_exit_ip": value.IPv6.ExitIP, "ipv6_probe_error": value.IPv6.Error,
 		"updated_at": time.Now().UTC(),
 	}
+	if code := egress.NormalizeCountryCode(value.Country); code != "" {
+		updates["location"] = gorm.Expr("CASE WHEN location = '' THEN ? ELSE location END", code)
+	}
 	if value.Status == egress.ProbeStatusHealthy {
 		condition := "last_error = ?"
 		updates["health"] = gorm.Expr("CASE WHEN "+condition+" THEN ? ELSE health END", egress.LastErrorTransport, 1)
@@ -314,6 +317,17 @@ func (r *EgressRepository) UpdateEgressNodeProbe(ctx context.Context, id uint64,
 		return repository.ErrConflict
 	}
 	return nil
+}
+
+// SetEgressNodeLocationIfEmpty records a detected region without replacing a
+// location that subscription import or an earlier probe already stored.
+func (r *EgressRepository) SetEgressNodeLocationIfEmpty(ctx context.Context, id uint64, location string) error {
+	location = egress.NormalizeCountryCode(location)
+	if id == 0 || location == "" {
+		return nil
+	}
+	result := r.db.db.WithContext(ctx).Model(&egressNodeModel{}).Where("id = ? AND location = ''", id).Update("location", location)
+	return mapError(result.Error)
 }
 
 func (r *EgressRepository) ListDueEgressNodes(ctx context.Context, now time.Time, interval time.Duration, limit int) ([]egress.Node, error) {
@@ -483,8 +497,10 @@ func (r *EgressRepository) UpsertEgressNodesFromSource(ctx context.Context, sour
 				Columns: []clause.Column{{Name: "source_id"}, {Name: "source_key"}},
 				DoUpdates: clause.Assignments(map[string]any{
 					"name": row.Name, "scope": row.Scope, "enabled": row.Enabled, "proxy_pool": row.ProxyPool,
-					"account_capacity": row.AccountCapacity, "location": row.Location, "encrypted_proxy_url": row.EncryptedProxyURL,
-					"updated_at": time.Now().UTC(),
+					"account_capacity":    row.AccountCapacity,
+					"location":            gorm.Expr("CASE WHEN ? <> '' THEN ? ELSE location END", row.Location, row.Location),
+					"encrypted_proxy_url": row.EncryptedProxyURL,
+					"updated_at":          time.Now().UTC(),
 				}),
 			}).Create(&row).Error; err != nil {
 				return mapError(err)

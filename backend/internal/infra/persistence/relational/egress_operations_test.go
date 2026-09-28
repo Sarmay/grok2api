@@ -974,6 +974,82 @@ func TestEgressOperationsSubscriptionImportCountsOnlyNewNodes(t *testing.T) {
 	assertSQLiteUniqueIndexes(t, database, "egress_nodes", "uidx_egress_nodes_source_key")
 }
 
+func TestEgressLocationKeepsKnownRegion(t *testing.T) {
+	ctx := context.Background()
+	database := openTestDatabase(t)
+	nodes := NewEgressRepository(database)
+	cipher := egressOperationsCipher(t)
+	source, err := nodes.CreateEgressSource(ctx, egress.SubscriptionSource{
+		Name: "location-source", Scope: egress.ScopeBuild, Enabled: true, EncryptedURL: "encrypted",
+		RefreshIntervalSeconds: 900,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := cipher.Encrypt("http://80th.de3.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := egress.Node{
+		Name: "generated 001", Scope: egress.ScopeBuild, Enabled: true, SourceID: source.ID,
+		SourceKey: "location-node", EncryptedProxyURL: proxy, Health: 1,
+	}
+	if _, err := nodes.UpsertEgressNodesFromSource(ctx, source.ID, []egress.Node{entry}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := nodes.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("imported nodes = %#v, %v", listed, err)
+	}
+	if err := nodes.SetEgressNodeLocationIfEmpty(ctx, listed[0].ID, "de"); err != nil {
+		t.Fatal(err)
+	}
+	probedAt := time.Now().UTC()
+	if err := nodes.UpdateEgressNodeProbe(ctx, listed[0].ID, proxy, egress.ProbeResult{
+		Status: egress.ProbeStatusHealthy, TestedAt: probedAt, Country: "US", ExitIP: "203.0.113.8",
+		IPv4: egress.ProbeFamilyResult{Status: egress.ProbeStatusHealthy, TestedAt: probedAt, ExitIP: "203.0.113.8", Country: "US"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entry.Name = "德国 01"
+	if _, err := nodes.UpsertEgressNodesFromSource(ctx, source.ID, []egress.Node{entry}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := nodes.GetEgressNode(ctx, listed[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "德国 01" || stored.Location != "DE" {
+		t.Fatalf("known location was replaced: %#v", stored)
+	}
+	entry.Location = "SG"
+	if _, err := nodes.UpsertEgressNodesFromSource(ctx, source.ID, []egress.Node{entry}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = nodes.GetEgressNode(ctx, listed[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Location != "SG" {
+		t.Fatalf("explicit subscription location = %q", stored.Location)
+	}
+
+	blank := createHealthyEgressNode(t, ctx, nodes, cipher, "blank-country", 0)
+	if err := nodes.UpdateEgressNodeProbe(ctx, blank.ID, blank.EncryptedProxyURL, egress.ProbeResult{
+		Status: egress.ProbeStatusHealthy, TestedAt: probedAt, Country: "uk", ExitIP: "203.0.113.9",
+		IPv4: egress.ProbeFamilyResult{Status: egress.ProbeStatusHealthy, TestedAt: probedAt, ExitIP: "203.0.113.9", Country: "uk"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = nodes.GetEgressNode(ctx, blank.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Location != "GB" {
+		t.Fatalf("probe country = %q", stored.Location)
+	}
+}
+
 func TestSubscriptionSyncDeletesUnboundStaleNodes(t *testing.T) {
 	ctx := context.Background()
 	database := openTestDatabase(t)

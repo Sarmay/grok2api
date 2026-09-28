@@ -41,6 +41,7 @@ type subscriptionEntry struct {
 	ProxyURL string
 	Key      string
 	Location string
+	Name     string
 }
 
 func normalizeSubscriptionURL(value string) (string, error) {
@@ -414,9 +415,29 @@ func acceptProxyLine(entries []subscriptionEntry, seen map[string]struct{}, raw,
 	}
 	seen[key] = struct{}{}
 	entries = append(entries, subscriptionEntry{
-		ProxyURL: normalized, Key: key, Location: detectProxyLocation(label, proxyServerHost(normalized)),
+		ProxyURL: normalized, Key: key, Name: truncateSubscriptionName(label),
+		Location: detectProxyLocation(label, proxyServerHost(normalized)),
 	})
 	return entries, true
+}
+
+func subscriptionNodeName(proxyName, sourceName string, index int) string {
+	if name := truncateSubscriptionName(proxyName); name != "" {
+		return name
+	}
+	return sourceNodeName(sourceName, index)
+}
+
+func truncateSubscriptionName(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return ""
+	}
+	const maxRunes = 160
+	if utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	return strings.TrimSpace(string([]rune(value)[:maxRunes]))
 }
 
 func sourceNodeName(sourceName string, index int) string {

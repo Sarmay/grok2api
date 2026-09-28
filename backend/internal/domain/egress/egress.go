@@ -1,6 +1,9 @@
 package egress
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type Mode string
 
@@ -140,6 +143,7 @@ type ProbeResult struct {
 	TestedAt  time.Time
 	LatencyMS int
 	ExitIP    string
+	Country   string
 	Error     string
 	Provider  ProbeProvider
 	IPv4      ProbeFamilyResult
@@ -153,6 +157,7 @@ type ProbeFamilyResult struct {
 	TestedAt  time.Time
 	LatencyMS int
 	ExitIP    string
+	Country   string
 	Error     string
 }
 
@@ -216,6 +221,24 @@ func (value FallbackMode) IsValid() bool {
 
 // Normalized maps the zero value left by pre-fallback database rows to the
 // conservative disabled mode.
+// NormalizeCountryCode accepts an ISO 3166-1 alpha-2 country code. UK is stored
+// as GB so it matches the location vocabulary used by subscription import.
+func NormalizeCountryCode(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "UK" {
+		value = "GB"
+	}
+	if len(value) != 2 {
+		return ""
+	}
+	for _, character := range value {
+		if character < 'A' || character > 'Z' {
+			return ""
+		}
+	}
+	return value
+}
+
 func (value FallbackMode) Normalized() FallbackMode {
 	if value == "" {
 		return FallbackModeNone

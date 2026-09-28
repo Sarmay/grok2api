@@ -272,7 +272,7 @@ func (s *Service) ImportText(ctx context.Context, input ImportInput) (ImportResu
 			return ImportResult{}, encryptErr
 		}
 		nodes = append(nodes, domain.Node{
-			Name: sourceNodeName(input.Name, index), Scope: input.Scope, Enabled: true, Location: entry.Location,
+			Name: subscriptionNodeName(entry.Name, input.Name, index), Scope: input.Scope, Enabled: true, Location: entry.Location,
 			AccountCapacity: input.AccountCapacity, EncryptedProxyURL: encryptedProxy, Health: 1,
 			ProbeStatus: domain.ProbeStatusUnknown,
 		})
@@ -282,6 +282,43 @@ func (s *Service) ImportText(ctx context.Context, input ImportInput) (ImportResu
 		return ImportResult{}, err
 	}
 	return ImportResult{Imported: created, Skipped: skipped}, nil
+}
+
+type emptyLocationWriter interface {
+	SetEgressNodeLocationIfEmpty(context.Context, uint64, string) error
+}
+
+// backfillEmptyLocations recovers a region from the stored node name and proxy
+// host when subscription import left the location blank.
+func (s *Service) backfillEmptyLocations(ctx context.Context) error {
+	if s == nil || s.repository == nil || s.cipher == nil {
+		return nil
+	}
+	writer, ok := s.repository.(emptyLocationWriter)
+	if !ok {
+		return nil
+	}
+	nodes, err := s.repository.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		if strings.TrimSpace(node.Location) != "" || strings.TrimSpace(node.EncryptedProxyURL) == "" {
+			continue
+		}
+		proxyURL, decryptErr := s.cipher.Decrypt(node.EncryptedProxyURL)
+		if decryptErr != nil || proxyURL == "" {
+			continue
+		}
+		code := detectProxyLocation(node.Name, proxyServerHost(proxyURL))
+		if code == "" {
+			continue
+		}
+		if err := writer.SetEgressNodeLocationIfEmpty(ctx, node.ID, code); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) TestNode(ctx context.Context, id uint64) (domain.ProbeResult, error) {

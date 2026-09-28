@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	domain "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	"github.com/chenyme/grok2api/backend/internal/pkg/tunnelproxy"
 )
 
@@ -45,6 +46,7 @@ var locationPhrases = []locationPhrase{
 	{"singapore", "SG"},
 	{"美国", "US"},
 	{"美國", "US"},
+	{"硅谷", "US"},
 	{"美西", "US"},
 	{"美东", "US"},
 	{"美東", "US"},
@@ -55,6 +57,7 @@ var locationPhrases = []locationPhrase{
 	{"united states", "US"},
 	{"韩国", "KR"},
 	{"韓國", "KR"},
+	{"韩國", "KR"},
 	{"首尔", "KR"},
 	{"korea", "KR"},
 	{"seoul", "KR"},
@@ -114,7 +117,7 @@ var locationPhrases = []locationPhrase{
 }
 
 var locationTokens = map[string]string{
-	"hk": "HK", "hkg": "HK", "hongkong": "HK",
+	"hk": "HK", "hkg": "HK", "hkt": "HK", "hongkong": "HK",
 	"mo": "MO",
 	"tw": "TW", "tpe": "TW",
 	"jp": "JP", "tyo": "JP", "nrt": "JP",
@@ -140,7 +143,35 @@ func detectProxyLocation(label, host string) string {
 	if code := matchLocationText(label); code != "" {
 		return code
 	}
+	if code := matchLocationFlag(label); code != "" {
+		return code
+	}
 	return matchLocationHost(host)
+}
+
+// matchLocationFlag reads regional-indicator pairs such as 🇰🇷. Text phrases
+// stay first so an explicit city still wins when a flag and a label disagree.
+func matchLocationFlag(value string) string {
+	var pending rune
+	for _, character := range value {
+		if character < 0x1F1E6 || character > 0x1F1FF {
+			pending = 0
+			continue
+		}
+		if pending == 0 {
+			pending = character
+			continue
+		}
+		code := string([]byte{byte('a' + pending - 0x1F1E6), byte('a' + character - 0x1F1E6)})
+		pending = 0
+		if mapped, ok := locationTokens[code]; ok {
+			return mapped
+		}
+		if normalized := domain.NormalizeCountryCode(code); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
 }
 
 func matchLocationText(value string) string {
@@ -194,8 +225,11 @@ func normalizeLocationText(value string) string {
 	return strings.Join(strings.Fields(builder.String()), " ")
 }
 
+// trimLocationDigits removes a numeric suffix such as jp01 or de3. Leading
+// digits stay in place so a label like 80th is not reduced to the country
+// code th.
 func trimLocationDigits(value string) string {
-	return strings.Trim(value, "0123456789")
+	return strings.TrimRight(value, "0123456789")
 }
 
 func proxyServerHost(proxyURL string) string {
