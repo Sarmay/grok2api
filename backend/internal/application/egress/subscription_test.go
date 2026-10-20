@@ -16,12 +16,43 @@ import (
 	domain "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/security"
 	"github.com/chenyme/grok2api/backend/internal/pkg/tunnelproxy"
+	"github.com/chenyme/grok2api/backend/internal/repository"
 )
 
 type subscriptionSyncRepositoryStub struct {
 	OperationsRepository
-	mu    sync.Mutex
-	nodes map[uint64][]domain.Node
+	ServiceRepository
+	mu     sync.Mutex
+	nodes  map[uint64][]domain.Node
+	stored []domain.Node
+}
+
+func (r *subscriptionSyncRepositoryStub) ListEgressNodes(context.Context, domain.Scope, repository.SortQuery) ([]domain.Node, error) {
+	return append([]domain.Node(nil), r.stored...), nil
+}
+
+func TestApplyStoredHongKongLocationsUsesSourceAndStableKeyOnly(t *testing.T) {
+	stored := &subscriptionSyncRepositoryStub{stored: []domain.Node{
+		{SourceID: 7, SourceKey: "same", Location: "HK"},
+		{SourceID: 8, SourceKey: "other-source", Location: "HK"},
+		{SourceID: 7, SourceKey: "old-proxy-key", Location: "HK"},
+	}}
+	service := &Service{repository: stored}
+	entries := []subscriptionEntry{{Key: "same"}, {Key: "other-source"}, {Key: "new-proxy-key"}, {Key: "same", Location: "JP"}}
+	got, err := service.applyStoredHongKongLocations(context.Background(), entries, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"HK", "", "", "JP"}
+	for i := range want {
+		if got[i].Location != want[i] {
+			t.Fatalf("entry %d location = %q, want %q", i, got[i].Location, want[i])
+		}
+	}
+	filtered, skipped := selectSubscriptionEntries(got, true)
+	if skipped != 1 || len(filtered) != 3 {
+		t.Fatalf("filtered entries=%d skipped=%d, want 3 and 1", len(filtered), skipped)
+	}
 }
 
 func (r *subscriptionSyncRepositoryStub) UpsertEgressNodesFromSource(_ context.Context, sourceID uint64, nodes []domain.Node) (int, error) {
@@ -45,6 +76,7 @@ func TestParseProxySubscriptionAcceptsPlainAndBase64Lists(t *testing.T) {
 	plain, skipped, err := parseProxySubscription(strings.Join([]string{
 		"# proxy list",
 		"http://user:pass@one.example:8080",
+		"127.0.0.1:3128:legacy:password",
 		"socks5h://two.example:1080",
 		"http://user:pass@one.example:8080",
 		"not a proxy",
@@ -52,8 +84,11 @@ func TestParseProxySubscriptionAcceptsPlainAndBase64Lists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plain) != 2 || skipped != 2 {
+	if len(plain) != 3 || skipped != 2 {
 		t.Fatalf("plain entries=%d skipped=%d", len(plain), skipped)
+	}
+	if plain[1].ProxyURL != "http://legacy:password@127.0.0.1:3128" {
+		t.Fatalf("legacy HTTP proxy = %q", plain[1].ProxyURL)
 	}
 	for _, entry := range plain {
 		if entry.ProxyURL == "" || len(entry.Key) != 64 {
@@ -68,6 +103,28 @@ func TestParseProxySubscriptionAcceptsPlainAndBase64Lists(t *testing.T) {
 	}
 	if len(encoded) != 2 || encodedSkipped != 0 {
 		t.Fatalf("base64 entries=%d skipped=%d", len(encoded), encodedSkipped)
+	}
+}
+
+func TestParseProxySubscriptionPreservesLegacyAccountPlaceholder(t *testing.T) {
+	content := strings.Join([]string{
+		"127.0.0.1:8080:Default.{account}:pass:word",
+		"http://Default.{account}:pass%3Aword@127.0.0.1:8080",
+		"127.0.0.1:8080:user:{account}",
+	}, "\n")
+	for name, input := range map[string]string{"plain": content, "base64": base64.StdEncoding.EncodeToString([]byte(content))} {
+		t.Run(name, func(t *testing.T) {
+			entries, skipped, err := parseProxySubscription(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || skipped != 2 {
+				t.Fatalf("entries=%d skipped=%d, want one entry and two skipped", len(entries), skipped)
+			}
+			if entries[0].ProxyURL != "http://Default.{account}:pass%3Aword@127.0.0.1:8080" {
+				t.Fatalf("legacy account proxy = %q", entries[0].ProxyURL)
+			}
+		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -308,6 +309,7 @@ func (s *Service) backfillEmptyLocations(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 	s.mu.Lock()
 	cursor := s.locationLookupCursor
 	s.mu.Unlock()

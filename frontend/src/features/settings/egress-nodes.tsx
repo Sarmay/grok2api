@@ -681,7 +681,7 @@ function HealthMeter({ value }: { value: number }) {
 function LocationBadge({ code }: { code: string }) {
   const { t, i18n } = useTranslation();
   const key = `settings.egress.location${code}`;
-  let label = code;
+  let label: string;
   if (i18n.exists(key)) {
     label = t(key);
   } else {

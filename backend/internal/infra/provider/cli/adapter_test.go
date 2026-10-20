@@ -41,8 +41,33 @@ func TestBuildDirectTransportEnablesHTTP2Health(t *testing.T) {
 	if transport.IdleConnTimeout != buildtransport.IdleConnTimeout {
 		t.Fatalf("idle connection timeout = %s", transport.IdleConnTimeout)
 	}
-	if transport.TLSNextProto["h2"] == nil {
-		t.Fatal("Build direct transport did not install HTTP/2 health checks")
+	if transport.TLSNextProto["h2"] == nil && (transport.Protocols == nil || !transport.Protocols.HTTP2()) {
+		t.Fatal("Build direct transport did not register HTTP/2")
+	}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	serverTransport := server.Client().Transport.(*http.Transport)
+	transport.TLSClientConfig = serverTransport.TLSClientConfig.Clone()
+	request, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatalf("Build direct transport request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusNoContent)
+	}
+	if response.ProtoMajor != 2 {
+		t.Fatalf("negotiated protocol = %q, want HTTP/2", response.Proto)
 	}
 }
 
@@ -71,6 +96,48 @@ func TestResponseRequestForcedEgressOverridesCredentialBinding(t *testing.T) {
 	_ = call.response.Body.Close()
 	if gotNodeID != 22 {
 		t.Fatalf("egress node=%d, want forced node=22", gotNodeID)
+	}
+}
+
+func TestResponseRequestSendsTransientRetryHeaderOnlyForResubmissions(t *testing.T) {
+	tests := []struct {
+		name  string
+		retry int
+		want  string
+	}{
+		{name: "initial submission", retry: 0},
+		{name: "invalid negative value", retry: -1},
+		{name: "first resubmission", retry: 1, want: "1"},
+		{name: "second resubmission", retry: 2, want: "2"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got string
+			adapter := NewAdapter(Config{BaseURL: "https://cli-chat-proxy.grok.com/v1"}, nil)
+			adapter.http.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				got = request.Header.Get("x-grok-transient-retry")
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{}`)),
+					Request:    request,
+				}, nil
+			})
+			call := adapter.doResponseRequest(context.Background(), provider.ResponseResourceRequest{
+				Credential:     account.Credential{ID: 7, Provider: account.ProviderBuild},
+				Method:         http.MethodPost,
+				Path:           "/responses",
+				TransientRetry: test.retry,
+			}, "access-token", nil, "https://cli-chat-proxy.grok.com/v1")
+			if call.err != nil {
+				t.Fatal(call.err)
+			}
+			_ = call.response.Body.Close()
+			if got != test.want {
+				t.Fatalf("x-grok-transient-retry = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

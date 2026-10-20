@@ -2402,6 +2402,16 @@ Object.assign(resources.en.translation.settings.web as unknown as Record<string,
   clearanceModeHelp: "Maintain Clearance manually, refresh it proactively with FlareSolverr, or solve on demand only after an explicit upstream rejection.",
   clearanceOnDemand: "On demand",
 });
+Object.assign(resources["zh-CN"].translation.settings.accounts as unknown as Record<string, string>, {
+  degradedAccountTitle: "降智账号处理",
+  autoDisableDegradedAccounts: "自动停用降智账号",
+  autoDisableDegradedAccountsHelp: "开启请求质量检查与安全重试；首次确认缺少思考或输出速度异常（超过阈值或短时突发）时立即停用 Grok Build 账号。关闭后恢复原有的检查、冷却和重试策略。",
+});
+Object.assign(resources.en.translation.settings.accounts as unknown as Record<string, string>, {
+  degradedAccountTitle: "Degraded account handling",
+  autoDisableDegradedAccounts: "Automatically disable degraded accounts",
+  autoDisableDegradedAccountsHelp: "Enable request quality checks and safe retries; disable a Grok Build account after the first confirmed missing-thinking response or abnormal output speed above the threshold or in a buffered burst. When off, restore the existing checking, cooldown, and retry policy.",
+});
 function readStoredLanguage(): string | null {
   if (typeof window === "undefined") return null;
   try {

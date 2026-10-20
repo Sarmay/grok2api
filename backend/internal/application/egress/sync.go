@@ -8,6 +8,7 @@ import (
 	"time"
 
 	domain "github.com/chenyme/grok2api/backend/internal/domain/egress"
+	"github.com/chenyme/grok2api/backend/internal/repository"
 )
 
 var ErrSubscriptionSync = errors.New("代理订阅同步失败")
@@ -44,6 +45,13 @@ func (s *Service) syncSource(ctx context.Context, operations OperationsRepositor
 		recordFailure()
 		return ImportResult{}, ErrSubscriptionSync
 	}
+	if source.ExcludeHongKong {
+		entries, err = s.applyStoredHongKongLocations(ctx, entries, source.ID)
+		if err != nil {
+			recordFailure()
+			return ImportResult{}, ErrSubscriptionSync
+		}
+	}
 	entries, excluded := selectSubscriptionEntries(entries, source.ExcludeHongKong)
 	skipped += excluded
 	userAgent := ""
@@ -75,6 +83,28 @@ func (s *Service) syncSource(ctx context.Context, operations OperationsRepositor
 		return ImportResult{}, err
 	}
 	return ImportResult{Imported: imported, Skipped: skipped}, nil
+}
+
+func (s *Service) applyStoredHongKongLocations(ctx context.Context, entries []subscriptionEntry, sourceID uint64) ([]subscriptionEntry, error) {
+	if s.repository == nil {
+		return entries, nil
+	}
+	existing, err := s.repository.ListEgressNodes(ctx, "", repository.SortQuery{})
+	if err != nil {
+		return nil, err
+	}
+	locations := make(map[string]string, len(existing))
+	for _, node := range existing {
+		if node.SourceID == sourceID && node.SourceKey != "" {
+			locations[node.SourceKey] = node.Location
+		}
+	}
+	for index := range entries {
+		if entries[index].Location == "" && locations[entries[index].Key] == "HK" {
+			entries[index].Location = "HK"
+		}
+	}
+	return entries, nil
 }
 
 func sourceNextSyncAt(source domain.SubscriptionSource, now time.Time) time.Time {

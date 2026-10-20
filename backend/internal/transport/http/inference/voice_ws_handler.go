@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"math"
@@ -63,22 +64,39 @@ func (h *Handler) proxyVoiceWebSocket(c *gin.Context, pathValue string) {
 	clientConn.SetReadLimit(voiceWSMessageLimit)
 	session.Conn.SetReadLimit(voiceWSMessageLimit)
 
-	var once sync.Once
+	var closeOnce sync.Once
 	var outcomeMu sync.Mutex
+	var pumps sync.WaitGroup
+	pumps.Add(2)
 	outcome := gateway.VoiceWebSocketOutcome{}
-	closeAll := func() {
-		once.Do(func() {
+	closeConnections := func() {
+		closeOnce.Do(func() {
 			_ = clientConn.Close()
 			if session.Conn != nil {
 				_ = session.Conn.Close()
 			}
-			outcomeMu.Lock()
-			finalOutcome := outcome
-			outcomeMu.Unlock()
-			session.Finalize(finalOutcome)
 		})
 	}
-	defer closeAll()
+	defer func() {
+		closeConnections()
+		// Closing both connections releases the pumps. Wait for them to finish
+		// recording any event already read from upstream before the final
+		// billing snapshot is taken.
+		pumps.Wait()
+		outcomeMu.Lock()
+		finalOutcome := outcome
+		outcomeMu.Unlock()
+		session.Finalize(finalOutcome)
+	}()
+
+	// server.requestTimeout cancels c.Request.Context(), but a quiet,
+	// established voice/STT WebSocket has no read or write in flight to
+	// surface that cancellation. Without this watcher, cleanup only ran when
+	// a pump hit a transport error, so the session, its account lease, and
+	// its concurrency slot could outlive the configured request deadline
+	// indefinitely. Connection cleanup is idempotent, so this races safely
+	// against the pumps finishing on their own via a transport error first.
+	go watchRequestTimeout(c.Request.Context(), &outcomeMu, &outcome.ErrorCode, closeConnections)
 
 	type pumpResult struct {
 		upstreamSide bool
@@ -86,12 +104,14 @@ func (h *Handler) proxyVoiceWebSocket(c *gin.Context, pathValue string) {
 	}
 	errCh := make(chan pumpResult, 2)
 	go func() {
-		errCh <- pumpResult{result: proxyVoiceWSPump(func() (int, []byte, error) {
+		result := proxyVoiceWSPump(func() (int, []byte, error) {
 			return clientConn.ReadMessage()
-		}, session.Conn.WriteMessage)}
+		}, session.Conn.WriteMessage)
+		errCh <- pumpResult{result: result}
+		pumps.Done()
 	}()
 	go func() {
-		errCh <- pumpResult{upstreamSide: true, result: proxyVoiceWSPump(func() (int, []byte, error) {
+		result := proxyVoiceWSPump(func() (int, []byte, error) {
 			messageType, payload, readErr := session.Conn.ReadMessage()
 			if readErr == nil && pathValue == "/stt" {
 				if duration, ok := streamingSTTDuration(payload); ok {
@@ -101,19 +121,44 @@ func (h *Handler) proxyVoiceWebSocket(c *gin.Context, pathValue string) {
 				}
 			}
 			return messageType, payload, readErr
-		}, clientConn.WriteMessage)}
+		}, clientConn.WriteMessage)
+		errCh <- pumpResult{upstreamSide: true, result: result}
+		pumps.Done()
 	}()
 	first := <-errCh
 	if !isNormalVoiceWSClose(first.result.err) {
 		outcomeMu.Lock()
-		if (first.upstreamSide && !first.result.writeFailed) || (!first.upstreamSide && first.result.writeFailed) {
-			outcome.ErrorCode = "upstream_stream_interrupted"
-			outcome.UpstreamFailed = true
-		} else {
-			outcome.ErrorCode = "client_stream_interrupted"
+		// A request-context watcher may have closed both sockets first. Keep
+		// its timeout/cancellation outcome instead of replacing it with the
+		// close error produced by our own cleanup.
+		if outcome.ErrorCode == "" {
+			if (first.upstreamSide && !first.result.writeFailed) || (!first.upstreamSide && first.result.writeFailed) {
+				outcome.ErrorCode = "upstream_stream_interrupted"
+				outcome.UpstreamFailed = true
+			} else {
+				outcome.ErrorCode = "client_stream_interrupted"
+			}
 		}
 		outcomeMu.Unlock()
 	}
+}
+
+// watchRequestTimeout closes the session connections once its request context is done.
+// Deadline cancellation is the configured request timeout; ordinary
+// cancellation is kept distinct so client disconnects and server shutdowns
+// are not reported as timeouts. Existing transport outcomes always win.
+func watchRequestTimeout(ctx context.Context, mu *sync.Mutex, errorCode *string, closeAll func()) {
+	<-ctx.Done()
+	mu.Lock()
+	if *errorCode == "" {
+		if ctx.Err() == context.DeadlineExceeded {
+			*errorCode = "request_timeout"
+		} else {
+			*errorCode = "request_canceled"
+		}
+	}
+	mu.Unlock()
+	closeAll()
 }
 
 func streamingSTTDuration(payload []byte) (float64, bool) {

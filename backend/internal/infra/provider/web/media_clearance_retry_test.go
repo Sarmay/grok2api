@@ -88,18 +88,33 @@ func TestGenerateWSImageReacquiresAfterChallengeHandshake(t *testing.T) {
 			return
 		}
 		defer connection.Close()
+		var requestIDForResponse string
 		for range 2 {
 			var message map[string]any
 			if err := connection.ReadJSON(&message); err != nil {
 				t.Errorf("read Imagine request: %v", err)
 				return
 			}
+			if item, ok := message["item"].(map[string]any); ok {
+				if content, ok := item["content"].([]any); ok && len(content) > 0 {
+					if first, ok := content[0].(map[string]any); ok {
+						if requestID, ok := first["requestId"].(string); ok && requestID != "" {
+							// The Imagine collector binds response frames to the request ID.
+							requestIDForResponse = requestID
+						}
+					}
+				}
+			}
+		}
+		if requestIDForResponse == "" {
+			t.Error("Imagine request did not include requestId")
+			return
 		}
 		_ = connection.WriteJSON(map[string]any{
-			"type": "image", "id": "image-1", "blob": "aW1hZ2U=", "percentage_complete": 100, "grid_index": 0,
+			"type": "image", "id": "image-1", "requestId": requestIDForResponse, "blob": "aW1hZ2U=", "percentage_complete": 100, "grid_index": 0,
 		})
 		_ = connection.WriteJSON(map[string]any{
-			"type": "json", "id": "image-1", "current_status": "completed", "moderated": false, "order": 0,
+			"type": "json", "id": "image-1", "requestId": requestIDForResponse, "current_status": "completed", "moderated": false, "order": 0,
 		})
 	}))
 	defer server.Close()
@@ -124,6 +139,107 @@ func TestGenerateWSImageReacquiresAfterChallengeHandshake(t *testing.T) {
 	if got := solverCalls.Load(); got != 2 {
 		t.Fatalf("solver calls=%d, want 2", got)
 	}
+}
+
+func TestGenerateImagineErrorFramesAreRequestScoped(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		mode := "nonstream"
+		if streaming {
+			mode = "stream"
+		}
+		for _, errorCase := range []string{"mismatched", "matching", "without-id"} {
+			t.Run(mode+"/"+errorCase, func(t *testing.T) {
+				server := fhttptest.NewServer(fhttp.HandlerFunc(func(writer fhttp.ResponseWriter, request *fhttp.Request) {
+					if request.URL.Path != "/ws/imagine/listen" {
+						fhttp.NotFound(writer, request)
+						return
+					}
+					connection, err := (&websocket.Upgrader{CheckOrigin: func(*fhttp.Request) bool { return true }}).Upgrade(writer, request, nil)
+					if err != nil {
+						t.Errorf("upgrade Imagine WebSocket: %v", err)
+						return
+					}
+					defer connection.Close()
+					var requestID string
+					for range 2 {
+						var message map[string]any
+						if err := connection.ReadJSON(&message); err != nil {
+							t.Errorf("read Imagine request: %v", err)
+							return
+						}
+						requestID = imagineMessageRequestIDFromRequest(message)
+					}
+					if requestID == "" {
+						t.Error("Imagine request did not include requestId")
+						return
+					}
+					errorMessage := map[string]any{"type": "error", "message": "upstream error"}
+					switch errorCase {
+					case "mismatched":
+						errorMessage["item"] = map[string]any{"request_id": "img_stale_999"}
+					case "matching":
+						errorMessage["req_id"] = requestID
+					}
+					if err := connection.WriteJSON(errorMessage); err != nil {
+						t.Errorf("write error frame: %v", err)
+						return
+					}
+					if errorCase != "mismatched" {
+						return
+					}
+					_ = connection.WriteJSON(map[string]any{
+						"type": "image", "id": "image-1", "requestId": requestID, "blob": "aW1hZ2U=", "percentage_complete": 100,
+					})
+					_ = connection.WriteJSON(map[string]any{
+						"type": "json", "id": "image-1", "requestId": requestID, "current_status": "completed", "moderated": false,
+					})
+				}))
+				defer server.Close()
+
+				adapter, credential := testMediaAdapter(t, server.URL)
+				imageResponse, err := adapter.GenerateImage(context.Background(), provider.ImageGenerationRequest{
+					Credential: credential, Model: "grok-imagine-image-quality", Prompt: "draw a teapot", Count: 1,
+					ResponseFormat: "b64_json", Streaming: streaming,
+				})
+				if errorCase != "mismatched" {
+					if streaming {
+						if err != nil {
+							t.Fatalf("GenerateImage returned early error: %v", err)
+						}
+						defer imageResponse.Body.Close()
+						if _, readErr := io.ReadAll(imageResponse.Body); readErr == nil {
+							t.Fatal("stream accepted matching or session-level error frame")
+						}
+					} else if err == nil {
+						t.Fatal("nonstream accepted matching or session-level error frame")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer imageResponse.Body.Close()
+				body, readErr := io.ReadAll(imageResponse.Body)
+				if readErr != nil {
+					t.Fatalf("read successful response: %v", readErr)
+				}
+				if !strings.Contains(string(body), "image_generation.completed") && !strings.Contains(string(body), `"b64_json"`) {
+					t.Fatalf("response did not contain generated image: %s", body)
+				}
+			})
+		}
+	}
+}
+
+func imagineMessageRequestIDFromRequest(message map[string]any) string {
+	item, _ := message["item"].(map[string]any)
+	content, _ := item["content"].([]any)
+	if len(content) == 0 {
+		return ""
+	}
+	first, _ := content[0].(map[string]any)
+	requestID, _ := first["requestId"].(string)
+	return requestID
 }
 
 func TestGenerateLiteImageReacquiresAfterChallengeHandshake(t *testing.T) {

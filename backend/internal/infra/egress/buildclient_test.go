@@ -26,7 +26,8 @@ func TestBuildClientUsesConfiguredResponseHeaderTimeout(t *testing.T) {
 	if transport.ResponseHeaderTimeout != 7*time.Minute {
 		t.Fatalf("response header timeout = %s", transport.ResponseHeaderTimeout)
 	}
-	if transport.IdleConnTimeout != buildtransport.IdleConnTimeout || transport.TLSNextProto["h2"] == nil {
+	if transport.IdleConnTimeout != buildtransport.IdleConnTimeout ||
+		(transport.TLSNextProto["h2"] == nil && (transport.Protocols == nil || !transport.Protocols.HTTP2())) {
 		t.Fatalf("Build HTTP/2 health transport not configured: %#v", transport)
 	}
 }
@@ -113,7 +114,8 @@ func TestNewBuildClientUsesStandardTransportForEveryProxyFamily(t *testing.T) {
 			if !ok {
 				t.Fatalf("transport = %T, want *http.Transport", client.Transport)
 			}
-			if transport.ForceAttemptHTTP2 != true || transport.DialContext == nil || transport.TLSNextProto["h2"] == nil {
+			if transport.ForceAttemptHTTP2 != true || transport.DialContext == nil ||
+				(transport.TLSNextProto["h2"] == nil && (transport.Protocols == nil || !transport.Protocols.HTTP2())) {
 				t.Fatalf("standard transport not fully configured: %#v", transport)
 			}
 			if (transport.Proxy != nil) != test.httpProxy {
