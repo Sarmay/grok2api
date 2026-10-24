@@ -136,6 +136,69 @@ func TestAccountRepositoryUpsertsDuplicateIdentityWithinChunk(t *testing.T) {
 	}
 }
 
+func TestAccountRepositoryImportDisabledCreatesDisabledAndPreservesEnabledOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	repo := NewAccountRepository(openTestDatabase(t))
+	created, err := repo.UpsertManyByIdentity(ctx, []account.Credential{{
+		Provider: account.ProviderBuild, AuthType: account.AuthTypeOAuth, Name: "parked", SourceKey: "parked",
+		EncryptedAccessToken: testEncryptedToken, AuthStatus: account.AuthStatusActive, ImportDisabled: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created) != 1 || !created[0].Created {
+		t.Fatalf("created = %#v", created)
+	}
+	stored, err := repo.Get(ctx, created[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled {
+		t.Fatal("new registration import was enabled")
+	}
+	enabledIDs, err := repo.ListEnabledAccountIDs(ctx, account.ProviderBuild, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enabledIDs) != 0 {
+		t.Fatalf("enabled ids = %#v", enabledIDs)
+	}
+	released, err := repo.UpsertManyByIdentity(ctx, []account.Credential{{
+		Provider: account.ProviderBuild, AuthType: account.AuthTypeOAuth, Name: "parked", SourceKey: "parked",
+		EncryptedAccessToken: testEncryptedToken, AuthStatus: account.AuthStatusActive, Enabled: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(released) != 1 || released[0].Created {
+		t.Fatalf("reimport = %#v", released)
+	}
+	stored, err = repo.Get(ctx, created[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled {
+		t.Fatal("reimport enabled an account that is still waiting for GrokIQ")
+	}
+	stored.Enabled = true
+	if _, err := repo.Update(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpsertManyByIdentity(ctx, []account.Credential{{
+		Provider: account.ProviderBuild, AuthType: account.AuthTypeOAuth, Name: "parked-again", SourceKey: "parked",
+		EncryptedAccessToken: testEncryptedToken, AuthStatus: account.AuthStatusActive, ImportDisabled: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = repo.Get(ctx, created[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Enabled || stored.Name != "parked-again" {
+		t.Fatalf("released account = enabled %v name %q", stored.Enabled, stored.Name)
+	}
+}
+
 func TestAccountRepositoryLinksWebAndBuildAccountsOnce(t *testing.T) {
 	ctx := context.Background()
 	repo := NewAccountRepository(openTestDatabase(t))

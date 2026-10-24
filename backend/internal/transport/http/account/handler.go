@@ -1132,8 +1132,16 @@ func (h *Handler) importFile(c *gin.Context, providerValue accountdomain.Provide
 	}
 	stream := newAccountEventStream(c)
 	defer stream.Close()
+	createDisabled, parseErr := accountapp.ParseImportCreateDisabled(c.Query("initialEnabled"))
+	if parseErr != nil {
+		stream.WriteError("invalidRequest", "initialEnabled 必须是布尔值")
+		return
+	}
 	var total atomic.Int64
 	pipeline := h.startSyncPipeline(c.Request.Context(), stream.SyncProgressObserver())
+	if createDisabled {
+		pipeline.ctx = accountapp.WithImportCreateDisabled(pipeline.ctx)
+	}
 	var result accountapp.ImportResult
 	var err error
 	if providerValue == accountdomain.ProviderWeb {

@@ -972,6 +972,26 @@ func TestLayeredRoutingMatchesCombinedRepositoryResult(t *testing.T) {
 	}
 }
 
+func TestAssembleRoutingCandidatesSkipsHeldPriorityUnlessRouteBindsAccount(t *testing.T) {
+	bases := []account.RoutingAccountBase{
+		{Credential: account.Credential{ID: 1, Provider: account.ProviderBuild, Enabled: true, AuthStatus: account.AuthStatusActive, Priority: account.DefaultPriority}},
+		{Credential: account.Credential{ID: 2, Provider: account.ProviderBuild, Enabled: true, AuthStatus: account.AuthStatusActive, Priority: -1_000_000}},
+	}
+	unbound := assembleRoutingCandidates(account.ProviderBuild, "", bases, account.RoutingOverlaySnapshot{})
+	if len(unbound) != 1 || unbound[0].Credential.ID != 1 {
+		t.Fatalf("unbound candidates = %#v", unbound)
+	}
+	bound := assembleRoutingCandidates(account.ProviderBuild, "", bases, account.RoutingOverlaySnapshot{
+		HasBindings: true,
+		Values: []account.RoutingAccountOverlay{
+			{AccountID: 2, Bound: true, ModelCapabilityKnown: true, SupportsModel: true},
+		},
+	})
+	if len(bound) != 1 || bound[0].Credential.ID != 2 {
+		t.Fatalf("bound probe candidates = %#v", bound)
+	}
+}
+
 func TestAssembleRoutingCandidatesAllowsRecognizedStaticConsoleModelWithStaleSnapshot(t *testing.T) {
 	bases := []account.RoutingAccountBase{{Credential: account.Credential{
 		ID: 1, Provider: account.ProviderConsole, Enabled: true, AuthStatus: account.AuthStatusActive,

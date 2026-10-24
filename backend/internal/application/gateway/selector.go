@@ -2032,6 +2032,11 @@ func assembleRoutingCandidates(provider account.Provider, quotaMode string, base
 		if overlay.HasBindings && !overlayValue.Bound {
 			continue
 		}
+		// 未绑定路由不调度负优先级。注册探针会把账号临时启用并压到负优先级，
+		// 同时把探针路由显式绑到该账号，因此采样仍然打得到，外部流量打不到。
+		if !overlay.HasBindings && !account.ServesUnboundClientTraffic(base.Credential.Priority) {
+			continue
+		}
 		known, supports := overlayValue.ModelCapabilityKnown, overlayValue.SupportsModel
 		if staticProviderModel {
 			known, supports = true, true

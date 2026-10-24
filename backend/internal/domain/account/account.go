@@ -102,6 +102,14 @@ const (
 	MaxConcurrent           = 256
 )
 
+// ServesUnboundClientTraffic reports whether an enabled account may serve a
+// model route that does not explicitly bind it. Negative priority stays on
+// explicitly bound routes only, so a GrokIQ probe can temporarily enable a
+// registration without putting it on ordinary client traffic.
+func ServesUnboundClientTraffic(priority int) bool {
+	return priority >= 0
+}
+
 // AuthStatus 表示账号凭据的认证状态。
 type AuthStatus string
 
@@ -168,7 +176,10 @@ type Credential struct {
 	LastRefreshErrorResponse     string
 	RefreshPermanent             bool
 	Enabled                      bool
-	AuthStatus                   AuthStatus
+	// ImportDisabled keeps a newly created account out of routing.
+	// Updates ignore it and keep the stored enabled flag.
+	ImportDisabled bool
+	AuthStatus     AuthStatus
 	// ReauthMarkedAt 仅在切入 reauthRequired 时写入；恢复 active 时清空。自动清理以该时刻为 minAge 锚点。
 	ReauthMarkedAt   *time.Time
 	Priority         int

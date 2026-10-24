@@ -358,6 +358,15 @@ func (r *AccountRepository) ListRoutingCandidates(ctx context.Context, provider 
 			values = filtered
 		}
 	}
+	if len(bound) == 0 {
+		eligible := values[:0]
+		for _, value := range values {
+			if account.ServesUnboundClientTraffic(value.Priority) {
+				eligible = append(eligible, value)
+			}
+		}
+		values = eligible
+	}
 	billings, err := r.getRoutingBillings(ctx, provider)
 	if err != nil {
 		return nil, err
@@ -1413,7 +1422,9 @@ func upsertKnownAccountByIdentity(tx *gorm.DB, value account.Credential, existin
 	if row.MaxConcurrent == 0 {
 		row.MaxConcurrent = account.DefaultMaxConcurrent
 	}
-	row.Enabled = true
+	// 普通导入和手工创建仍默认启用。注册机在等待 GrokIQ 时显式要求新建账号停用；
+	// 再次导入同一账号走上面的更新分支，不会把已经放行的号重新停用。
+	row.Enabled = !value.ImportDisabled
 	if err := tx.Create(&row).Error; err != nil {
 		return repository.AccountUpsertResult{}, accountModel{}, err
 	}

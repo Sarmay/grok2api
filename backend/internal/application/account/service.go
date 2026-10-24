@@ -1348,6 +1348,33 @@ func (s *Service) PollDeviceLogin(ctx context.Context, sessionID string) (View, 
 	return s.Get(ctx, value.ID)
 }
 
+type importCreateDisabledKey struct{}
+
+// WithImportCreateDisabled marks newly created accounts from this import as
+// disabled. Accounts that already exist keep their stored enabled flag.
+func WithImportCreateDisabled(ctx context.Context) context.Context {
+	return context.WithValue(ctx, importCreateDisabledKey{}, true)
+}
+
+func importCreateDisabled(ctx context.Context) bool {
+	disabled, _ := ctx.Value(importCreateDisabledKey{}).(bool)
+	return disabled
+}
+
+// ParseImportCreateDisabled reads the initialEnabled query. An empty value
+// keeps the historical default and creates accounts enabled.
+func ParseImportCreateDisabled(raw string) (bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false, nil
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%w: initialEnabled 必须是布尔值", ErrInvalidInput)
+	}
+	return !enabled, nil
+}
+
 // ImportCredentials 导入用户上传的 OAuth 账号凭据。
 func (s *Service) ImportCredentials(ctx context.Context, data []byte) (ImportResult, error) {
 	return s.ImportCredentialsWithObserver(ctx, data, nil)
@@ -1559,6 +1586,9 @@ func (s *Service) persistImportedSeed(ctx context.Context, seed provider.Credent
 	if err != nil {
 		return repository.AccountUpsertResult{}, err
 	}
+	if importCreateDisabled(ctx) {
+		value.ImportDisabled = true
+	}
 	stored, err := s.accounts.UpsertManyByIdentity(ctx, []accountdomain.Credential{value})
 	if err != nil {
 		return repository.AccountUpsertResult{}, err
@@ -1588,6 +1618,9 @@ func (s *Service) persistImportedSeedsFromProgress(ctx context.Context, seeds []
 			value, err := s.credentialFromSeed(seed)
 			if err != nil {
 				return ImportResult{}, err
+			}
+			if importCreateDisabled(ctx) {
+				value.ImportDisabled = true
 			}
 			values = append(values, value)
 		}
